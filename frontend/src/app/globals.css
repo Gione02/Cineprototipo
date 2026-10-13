@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/* Sistema de diseño Cineight — paleta: Primario #550000, Secundario #D4AF37, Terciario #A38A5E, Neutro #0B0B0D */
+@theme inline {
+  --font-sans: var(--font-montserrat);
+  --font-mono: var(--font-montserrat);
+
+  --color-fondo: #0b0b0d;
+  --color-panel: #131315;
+  --color-panel-2: #1b1b1e;
+  --color-borde: #2a2a2e;
+  --color-tinta: #ede7e3;
+  --color-tenue: #9c9590;
+  --color-apagado: #6b6662;
+
+  --color-vino: #550000;
+  --color-vino-2: #730a0a;
+  --color-rojo: #c8372d;
+  --color-salmon: #ffb4a8;
+
+  --color-oro: #d4af37;
+  --color-oro-2: #f0c955;
+  --color-arena: #a38a5e;
+  --color-crema: #d9cba6;
+
+  /* Butacas: gris que se distingue del fondo sin competir con la selección */
+  --color-butaca: #4a4a52;
+  --color-butaca-borde: #62626b;
+  --color-butaca-hover: #74747e;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background:
+    radial-gradient(900px 500px at 15% -10%, rgba(85, 0, 0, 0.35), transparent 60%),
+    radial-gradient(700px 400px at 100% 0%, rgba(163, 138, 94, 0.08), transparent 60%),
+    var(--color-fondo);
+  color: var(--color-tinta);
+}
+
+@layer components {
+  .etiqueta {
+    @apply text-[10px] font-semibold uppercase tracking-[0.18em] text-tenue;
+  }
+  .titulo {
+    @apply font-extrabold uppercase tracking-tight;
+  }
+  .tarjeta {
+    @apply rounded-xl border border-borde bg-panel;
+  }
+  .btn-vino {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-rojo/60 bg-vino px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-salmon transition hover:bg-vino-2 hover:text-white disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-borde {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-borde bg-panel-2 px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-tinta transition hover:border-arena hover:text-white disabled:opacity-40;
+  }
+  .btn-oro {
+    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md bg-oro px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-fondo transition hover:bg-oro-2;
+  }
+  .badge-vino {
+    @apply whitespace-nowrap rounded border border-rojo/50 bg-vino px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-salmon;
+  }
+  .badge-borde {
+    @apply whitespace-nowrap rounded border border-borde bg-panel-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-tinta;
+  }
+  .chip {
+    @apply rounded-md border border-borde bg-panel-2 px-3 py-1.5 text-xs font-semibold tracking-wide text-tinta transition hover:border-arena;
+  }
+  .campo {
+    @apply mt-1 block w-full rounded-md border border-borde bg-fondo px-3 py-2.5 text-sm text-tinta outline-none transition placeholder:text-apagado focus:border-arena;
+  }
+}
+
+/* Pantalla curva del mapa de butacas */
+.pantalla {
+  height: 22px;
+  border-top: 3px solid rgba(225, 225, 232, 0.85);
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: radial-gradient(ellipse at top, rgba(225, 225, 232, 0.18), transparent 70%);
+  box-shadow: 0 -6px 24px -6px rgba(225, 225, 232, 0.4);
+}
+
+/* Tamaño de butaca adaptable al ancho de la pantalla */
+.butaca {
+  width: clamp(16px, 4.1vw, 32px);
+  height: clamp(16px, 4.1vw, 32px);
+}
+.pasillo {
+  width: clamp(6px, 2vw, 18px);
+}

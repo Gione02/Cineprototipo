@@ -1,0 +1,19 @@
+# Dependencias y compilados
+node_modules/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# Backend
+backend/cineight
+backend/*.exe
+
+# Variables de entorno y secretos
+.env
+.env.*
+
+# Sistema / logs
+.DS_Store
+Thumbs.db
+*.log
