@@ -5,7 +5,8 @@ import { AppProvider } from "@/lib/store";
 import { Header } from "@/components/Header";
 import { AvisoTrivia } from "@/components/AvisoTrivia";
 import { GuardiaRol } from "@/components/GuardiaRol";
-import { LoginModal } from "@/components/LoginModal";
+import { Ventanas } from "@/components/Ventanas";
+import { EstadoApi } from "@/components/EstadoApi";
 
 const montserrat = Montserrat({ variable: "--font-montserrat", subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"] });
 
@@ -16,7 +17,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="es" className={`${montserrat.variable} h-full antialiased`}>
+    // suppressHydrationWarning: extensiones del navegador (p. ej. Scribe) agregan atributos a <html> antes de hidratar.
+    <html lang="es" className={`${montserrat.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="flex min-h-full flex-col font-sans">
         <AppProvider>
           <Header />
@@ -29,11 +31,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 <b className="text-sm tracking-tight text-tinta">CINEIGHT</b> <span className="ml-2 text-oro">Cine en línea</span>
               </span>
               <span>Prototipo académico · Análisis de Sistemas II · UMG</span>
+              <EstadoApi />
               <span>Pósters: Wikipedia (uso académico) · Tráileres: YouTube</span>
             </div>
           </footer>
           <AvisoTrivia />
-          <LoginModal />
+          <Ventanas />
         </AppProvider>
       </body>
     </html>

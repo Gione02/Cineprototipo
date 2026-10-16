@@ -1,12 +1,16 @@
 "use client";
 
-import Link from "next/link";
+import { useEffect } from "react";
 import { useApp } from "@/lib/store";
 import { GrupoBoletos, agruparBoletos } from "@/components/Boleto";
 import { BotonVolver } from "@/components/BotonVolver";
 
 export default function MisEntradas() {
-  const { usuario, boletos, saldo, movimientos, listo, abrirLogin } = useApp();
+  const { usuario, boletos, saldo, movimientos, listo, abrirLogin, abrirTrivia, refrescarCuenta } = useApp();
+  // Con la API: boletos, saldo y movimientos actualizados desde PostgreSQL (p. ej. un boleto ya validado en sala).
+  useEffect(() => {
+    refrescarCuenta();
+  }, [refrescarCuenta]);
 
   if (listo && !usuario)
     return (
@@ -46,11 +50,11 @@ export default function MisEntradas() {
       </section>
 
       <aside className="tarjeta h-fit space-y-4 p-5">
-        <Link href="/trivia" className="group block rounded-lg border border-rojo/50 bg-gradient-to-br from-vino/70 to-panel p-4 transition hover:border-salmon">
+        <button onClick={abrirTrivia} className="group block w-full rounded-lg border border-rojo/50 bg-gradient-to-br from-vino/70 to-panel p-4 text-left transition-colors hover:border-salmon">
           <p className="etiqueta text-salmon">Mis créditos</p>
           <p className="mt-1 text-4xl font-black text-oro">◆ {saldo}</p>
           <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-salmon/80 group-hover:text-white">Toca para ganar más con la trivia →</p>
-        </Link>
+        </button>
         <div>
           <p className="etiqueta mb-2">Movimientos</p>
           <ul className="max-h-96 space-y-2 overflow-y-auto text-sm">

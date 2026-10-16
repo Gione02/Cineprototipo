@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useParams } from "next/navigation";
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
+import { m } from "framer-motion";
 import { fechaEstreno, fmtDuracion, fmtFechaLarga, fmtHora, sala, PELICULAS } from "@/lib/data";
 import { useApp } from "@/lib/store";
 import { Poster } from "@/components/Poster";
@@ -13,10 +14,19 @@ import { BotonVolver } from "@/components/BotonVolver";
 
 export default function FichaPelicula() {
   const { id } = useParams<{ id: string }>();
-  const { funciones, ocupacion, toast, usuario, abrirLogin } = useApp();
+  const { funciones, ocupacion, cargarOcupacion, toast, usuario, abrirLogin } = useApp();
   const [trailer, setTrailer] = useState(false);
   const [aviso, setAviso] = useState(false);
   const p = PELICULAS.find((x) => x.id === id);
+
+  // Con la API: butacas libres reales de cada horario de esta película.
+  const codigos = funciones
+    .filter((f) => f.peliculaId === id)
+    .map((f) => f.id)
+    .join(",");
+  useEffect(() => {
+    if (codigos) cargarOcupacion(codigos.split(","));
+  }, [codigos, cargarOcupacion]);
   if (!p)
     return (
       <div className="space-y-4">
@@ -48,14 +58,13 @@ export default function FichaPelicula() {
     <div className="space-y-10">
       {/* Cabecera */}
       <section className="relative -mx-4 -mt-6 overflow-hidden border-b border-borde px-4 pb-10 pt-6 sm:-mx-6 sm:-mt-8 sm:px-6">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={p.poster} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-30 blur-2xl" />
+        <Image src={p.poster} alt="" aria-hidden fill sizes="480px" quality={60} className="scale-110 object-cover opacity-30 blur-2xl" />
         <div className="absolute inset-0 bg-gradient-to-t from-fondo via-fondo/85 to-fondo/50" />
         <div className="relative mx-auto max-w-7xl">
           <BotonVolver />
           <div className="mt-6 flex flex-col gap-8 sm:flex-row">
-            <Poster p={p} className="aspect-[2/3] w-44 shrink-0 shadow-2xl shadow-black/60 sm:w-60" />
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 flex-1">
+            <Poster p={p} className="aspect-[2/3] w-44 shrink-0 shadow-2xl shadow-black/60 sm:w-60" sizes="(max-width: 640px) 176px, 240px" prioridad />
+            <m.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="min-w-0 flex-1">
               <div className="flex flex-wrap gap-2">
                 <span className={p.categoria === "cartelera" ? "badge-borde" : "badge-vino"}>{estado}</span>
                 <span className="badge-borde">{p.clasificacion}</span>
@@ -94,7 +103,7 @@ export default function FichaPelicula() {
                   </a>
                 )}
               </div>
-            </motion.div>
+            </m.div>
           </div>
         </div>
       </section>

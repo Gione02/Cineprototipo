@@ -1,11 +1,87 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { CLAVE_DEMO, FILAS, PARAMETROS, etiqueta, PELICULAS, ROL_TXT, SALAS, finFuncion, fmtFecha, fmtHora, pelicula, sala, type Funcion, type Rol } from "@/lib/data";
-import { useApp } from "@/lib/store";
+import { useApp, type Validacion } from "@/lib/store";
+import { api, type MetricasApi } from "@/lib/api";
 import { Modal } from "@/components/Modal";
 import { Poster } from "@/components/Poster";
+
+// ───────── Datos del panel ─────────
+
+// GET /api/metricas cada 5 s cuando la API está conectada (null en modo demostración).
+function useMetricas() {
+  const { modoApi } = useApp();
+  const [met, setMet] = useState<MetricasApi | null>(null);
+  useEffect(() => {
+    if (modoApi !== "conectado") return;
+    let vivo = true;
+    const traer = () =>
+      api
+        .metricas()
+        .then((r) => vivo && setMet(r))
+        .catch(() => {});
+    traer();
+    const t = setInterval(traer, 5000);
+    return () => {
+      vivo = false;
+      clearInterval(t);
+    };
+  }, [modoApi]);
+  return modoApi === "conectado" ? met : null;
+}
+
+// Con la API: carga la ocupación real (vendidas + retenidas) de todas las funciones vigentes cada 10 s.
+function useOcupacionVigente() {
+  const { funciones, cargarOcupacion } = useApp();
+  const codigos = funciones
+    .filter((f) => finFuncion(f) > new Date())
+    .map((f) => f.id)
+    .join(",");
+  useEffect(() => {
+    if (!codigos) return;
+    const ids = codigos.split(",");
+    cargarOcupacion(ids);
+    const t = setInterval(() => cargarOcupacion(ids), 10000);
+    return () => clearInterval(t);
+  }, [codigos, cargarOcupacion]);
+}
+
+type FilaVenta = { f: Funcion; vendidos: number; cap: number; ingresos: number };
+
+// Ventas por función: de /api/metricas si hay conexión; si no, de la ocupación simulada.
+function useFilasVentas(met: MetricasApi | null): FilaVenta[] {
+  const { funciones, ocupacion } = useApp();
+  if (met) {
+    const porCodigo = new Map(met.funciones.map((x) => [x.codigo, x]));
+    return funciones.flatMap((f) => {
+      const x = porCodigo.get(f.id);
+      return x ? [{ f, vendidos: x.vendidos, cap: x.aforo, ingresos: x.ingresos }] : [];
+    });
+  }
+  return funciones.map((f) => {
+    const vendidos = ocupacion(f.id).vendidos.size;
+    return { f, vendidos, cap: sala(f.salaId).aforo, ingresos: vendidos * f.precio };
+  });
+}
+
+// CSV con comillas y BOM para que Excel respete los acentos.
+function descargarCsv(nombre: string, filas: (string | number)[][]) {
+  const celda = (v: string | number) => `"${String(v).replaceAll('"', '""')}"`;
+  const csv = "﻿" + filas.map((f) => f.map(celda).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `${nombre}_${new Date().toISOString().slice(0, 10).replaceAll("-", "")}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+const csvVentas = (filas: FilaVenta[]) =>
+  descargarCsv("reporte_ventas", [
+    ["fecha", "pelicula", "sala", "funcion", "vendidos", "aforo", "ocupacion", "ingresos_creditos"],
+    ...filas.map((r) => [fmtFecha(r.f.inicio), pelicula(r.f.peliculaId).titulo, sala(r.f.salaId).nombre, fmtHora(r.f.inicio), r.vendidos, r.cap, `${Math.round((r.vendidos / r.cap) * 100)}%`, r.ingresos]),
+  ]);
 
 type Seccion = { id: string; txt: string; icono: string };
 
@@ -40,7 +116,7 @@ const TITULOS: Record<string, [string, string]> = {
 };
 
 export default function Panel() {
-  const { usuario, listo, abrirLogin } = useApp();
+  const { usuario, listo, abrirLogin, modoApi } = useApp();
   const [sec, setSec] = useState("");
 
   if (!listo) return null;
@@ -98,19 +174,21 @@ export default function Panel() {
             <h1 className="titulo mt-2 text-2xl leading-tight sm:text-3xl">{titulo}</h1>
           </div>
           <div className="flex flex-wrap gap-2">
-            {[
-              ["Go API", "99.9% · 12 ms"],
-              ["Redis seat lock TTL", "5 min"],
-              ["Anti-bots", "rate limit activo"],
-            ].map(([a, b]) => (
+            {(
+              [
+                ["Go API", modoApi === "conectado" ? "conectada" : modoApi === "verificando" ? "verificando…" : "sin conexión · demo", modoApi === "conectado"],
+                ["Redis seat lock TTL", "5 min", modoApi === "conectado"],
+                ["Anti-bots", "5 solicitudes/min por IP", modoApi === "conectado"],
+              ] as const
+            ).map(([a, b, ok]) => (
               <span key={a} className="rounded-md border border-borde bg-panel px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em]">
-                <span className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full bg-oro align-middle" />
+                <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle ${ok ? "bg-oro" : "bg-rojo"}`} />
                 {a} <span className="font-semibold normal-case tracking-normal text-tenue">{b}</span>
               </span>
             ))}
           </div>
         </div>
-        {activa === "general" && <General />}
+        {activa === "general" && <General ir={setSec} />}
         {activa === "usuarios" && <Usuarios />}
         {activa === "parametros" && <Parametros />}
         {activa === "reportes" && <Reportes />}
@@ -126,9 +204,32 @@ export default function Panel() {
 const card = "tarjeta p-5";
 const thCls = "etiqueta pb-3 pr-3 text-left font-bold";
 
-/* ─────────── Panel general (RF-56) ─────────── */
-function General() {
-  const { funciones, ocupacion, cuentas } = useApp();
+/* ─────────── Panel general (RF-56): dashboard en paneles ─────────── */
+
+// Panel delimitado del dashboard: borde y fondo propios, encabezado con título, subtítulo y acción.
+function Caja({ icono, titulo, sub, accion, children, className = "" }: { icono: string; titulo: string; sub?: string; accion?: React.ReactNode; children: React.ReactNode; className?: string }) {
+  return (
+    <section className={`rounded-xl border border-borde bg-panel/50 p-5 sm:p-6 ${className}`}>
+      <header className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-borde/70 pb-4">
+        <div className="flex items-start gap-3">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-borde bg-panel-2 text-arena">{icono}</span>
+          <div>
+            <h2 className="titulo text-base sm:text-lg">{titulo}</h2>
+            {sub && <p className="text-xs text-tenue">{sub}</p>}
+          </div>
+        </div>
+        {accion}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function General({ ir }: { ir: (seccion: string) => void }) {
+  const { funciones, ocupacion, cuentas, bitacora, modoApi } = useApp();
+  const met = useMetricas();
+  useOcupacionVigente();
+  const filas = useFilasVentas(met);
   const [serie, setSerie] = useState<number[]>(() => [12, 15, 14, 18, 22, 31, 38, 42, 36, 28, 24, 26]);
   const [log, setLog] = useState<string[]>([]);
   const [pausado, setPausado] = useState(false);
@@ -152,119 +253,239 @@ function General() {
     return () => clearInterval(t);
   }, [pausado]);
 
-  const vendidosHoy = funciones.reduce((a, f) => a + ocupacion(f.id).vendidos.size, 0);
-  const retenidos = funciones.reduce((a, f) => a + ocupacion(f.id).retenidos.size, 0);
+  // ── Métricas clave: de /api/metricas con la API; si no, calculadas sobre los datos del prototipo.
   const movs = Object.values(cuentas).flatMap((c) => c.movimientos);
-  const otorgados = movs.filter((m) => m.tipo === "recarga" && m.ref.startsWith("Trivia")).reduce((a, m) => a + m.monto, 0);
-  const canjeados = -movs.filter((m) => m.tipo === "retención").reduce((a, m) => a + m.monto, 0);
-  const proximas = funciones.filter((f) => new Date(f.inicio) > new Date()).sort((a, b) => a.inicio.localeCompare(b.inicio)).slice(0, 6);
+  const k = met
+    ? { vendidos: met.vendidos_hoy, ingresos: met.ingresos_hoy, retenidos: met.asientos_retenidos, trivia: met.creditos_trivia, canje: met.creditos_canjeados, cuentas: met.cuentas }
+    : {
+        vendidos: filas.reduce((a, r) => a + r.vendidos, 0),
+        ingresos: filas.reduce((a, r) => a + r.ingresos, 0),
+        retenidos: funciones.reduce((a, f) => a + ocupacion(f.id).retenidos.size, 0),
+        trivia: movs.filter((x) => x.tipo === "recarga" && x.ref.startsWith("Trivia")).reduce((a, x) => a + x.monto, 0),
+        canje: -movs.filter((x) => x.tipo === "retención").reduce((a, x) => a + x.monto, 0),
+        cuentas: Object.keys(cuentas).length,
+      };
+  const enCola = met ? Object.values(met.colas).reduce((a, n) => a + n, 0) : 0;
+  const aforoTotal = SALAS.reduce((a, s) => a + s.aforo, 0);
+  const fuente = met ? "API en vivo · se actualiza cada 5 s" : modoApi === "verificando" ? "Conectando con la API…" : "Datos del prototipo (sin API)";
+
+  // ── Usuarios & roles
+  const lista = Object.entries(cuentas);
+  const porRol = (["cliente", "agente", "admin", "auditor"] as Rol[]).map((r) => ({
+    rol: r,
+    activos: lista.filter(([, c]) => c.rol === r && c.activo).length,
+    baja: lista.filter(([, c]) => c.rol === r && !c.activo).length,
+  }));
+  const maxRol = Math.max(...porRol.map((r) => r.activos + r.baja), 1);
+  const recientes = [...lista].sort((a, b) => b[1].creado.localeCompare(a[1].creado)).slice(0, 4);
+
+  const proximas = filas.filter((r) => new Date(r.f.inicio) > new Date()).sort((a, b) => a.f.inicio.localeCompare(b.f.inicio)).slice(0, 6);
   const max = Math.max(...serie, 1);
 
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi titulo="Boletos vendidos (funciones activas)" valor={vendidosHoy.toLocaleString("es-GT")} detalle={`Ritmo: ${serie[serie.length - 1]} reservas/min`}>
-          <Sparkline datos={serie} />
-        </Kpi>
-        <Kpi titulo="Créditos trivia vs. canje" valor={`${otorgados}`} sufijo={`/ ${canjeados} canjeados`} detalle={`${Object.keys(cuentas).length} cuentas registradas`}>
-          <Barra pct={canjeados ? Math.min(100, (otorgados / Math.max(canjeados, 1)) * 100) : 0} />
-        </Kpi>
-        <Kpi titulo="Asientos en Redis (TTL)" valor={String(retenidos)} detalle="0 deadlocks · locks concurrentes">
-          <Barra pct={(retenidos / SALAS.reduce((a, s) => a + s.aforo, 0)) * 100} />
-        </Kpi>
-        <Kpi titulo="Alertas anti-fraude" valor={`${log.filter((l) => l.includes("Anti-bot")).length}`} sufijo="bots / sesión" detalle="IPs bloqueadas automáticamente" alerta />
+      {/* 1 · Métricas clave */}
+      <Caja icono="◩" titulo="Métricas clave" sub={fuente}>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Kpi titulo={met ? "Boletos vendidos hoy (en línea)" : "Boletos vendidos"} valor={k.vendidos.toLocaleString("es-GT")} detalle={met ? `${enCola} clientes en cola virtual` : `Ritmo simulado: ${serie[serie.length - 1]}/min`}>
+            <Sparkline datos={serie} />
+          </Kpi>
+          <Kpi titulo={met ? "Ingresos de hoy" : "Ingresos"} valor={k.ingresos.toLocaleString("es-GT")} sufijo="créditos" detalle={met ? "Débitos confirmados en PostgreSQL" : "Boletos vendidos × precio"}>
+            <Barra pct={(k.vendidos / Math.max(aforoTotal, 1)) * 100} />
+          </Kpi>
+          <Kpi titulo="Asientos retenidos (Redis TTL)" valor={String(k.retenidos)} detalle="Se liberan solos a los 5 min">
+            <Barra pct={(k.retenidos / aforoTotal) * 100} />
+          </Kpi>
+          <Kpi titulo="Créditos trivia vs. canje" valor={k.trivia.toLocaleString("es-GT")} sufijo={`/ ${k.canje.toLocaleString("es-GT")} canjeados`} detalle={`${k.cuentas} cuentas registradas`}>
+            <Barra pct={k.canje ? Math.min(100, (k.trivia / Math.max(k.canje, 1)) * 100) : 0} />
+          </Kpi>
+        </div>
+      </Caja>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        {/* 2 · Gestión de usuarios & roles */}
+        <Caja
+          icono="◎"
+          titulo="Gestión de usuarios & roles"
+          sub={`${lista.filter(([, c]) => c.activo).length} cuentas activas · ${lista.filter(([, c]) => !c.activo).length} dadas de baja`}
+          accion={
+            <button onClick={() => ir("usuarios")} className="btn-borde px-3 py-2 text-[10px]">
+              Administrar →
+            </button>
+          }
+        >
+          <ul className="space-y-2.5">
+            {porRol.map((r) => (
+              <li key={r.rol} className="grid grid-cols-[110px_1fr_auto] items-center gap-3 text-xs">
+                <span className="font-semibold">{ROL_TXT[r.rol].replace(" del Sistema", "")}</span>
+                <span className="flex h-2 overflow-hidden rounded-full bg-fondo">
+                  <span className="bg-arena" style={{ width: `${(r.activos / maxRol) * 100}%` }} />
+                  <span className="bg-rojo/60" style={{ width: `${(r.baja / maxRol) * 100}%` }} />
+                </span>
+                <span className="w-20 text-right tabular-nums text-tenue">
+                  <b className="text-tinta">{r.activos}</b>
+                  {r.baja > 0 && <span className="text-salmon"> +{r.baja} baja</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="etiqueta mb-2 mt-5">Altas recientes</p>
+          <ul className="divide-y divide-borde/60 text-sm">
+            {recientes.map(([correo, c]) => (
+              <li key={correo} className="flex items-center justify-between gap-3 py-2">
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold">{c.nombre}</span>
+                  <span className="block truncate text-[11px] text-tenue">{correo}</span>
+                </span>
+                <span className={c.activo ? "badge-borde" : "badge-vino"}>{c.activo ? ROL_TXT[c.rol].replace(" del Sistema", "") : "Baja"}</span>
+              </li>
+            ))}
+          </ul>
+        </Caja>
+
+        {/* 3 · Bitácora de eventos */}
+        <Caja
+          icono="☰"
+          titulo="Bitácora de eventos"
+          sub={`${bitacora.length} registros · operaciones críticas (RNF-22)`}
+          accion={
+            <button onClick={() => ir("bitacora")} className="btn-borde px-3 py-2 text-[10px]">
+              Ver completa →
+            </button>
+          }
+        >
+          {bitacora.length === 0 ? (
+            <p className="text-sm text-tenue">Sin registros todavía.</p>
+          ) : (
+            <ol className="relative space-y-3 border-l border-borde pl-4">
+              {bitacora.slice(0, 7).map((l, i) => (
+                <li key={i} className="relative text-xs">
+                  <span
+                    className={`absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full border-2 border-panel ${
+                      l.accion.includes("FALL") || l.accion.includes("EXPIR") || l.accion.includes("BAJA") ? "bg-rojo" : "bg-arena"
+                    }`}
+                  />
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                    <span className="font-bold tracking-wide">{l.accion}</span>
+                    <span className="text-apagado">{new Date(l.fecha).toLocaleString("es-GT", { dateStyle: "short", timeStyle: "short" })}</span>
+                  </div>
+                  <p className="truncate text-tenue" title={l.detalle}>
+                    {l.usuario}
+                    {l.detalle && ` · ${l.detalle}`}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Caja>
       </div>
 
-      {/* Control de apertura y venta */}
-      <div className={`${card} overflow-x-auto`}>
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h2 className="titulo text-lg">Control de apertura y venta de taquilla</h2>
-            <p className="text-xs text-tenue">Sincronización de disponibilidad por sala y preventa.</p>
-          </div>
+      {/* 4 · Exportación de reportes */}
+      <Caja icono="⤓" titulo="Exportación de reportes" sub="Archivos CSV (UTF-8) listos para Excel u hojas de cálculo · RF-13 · RF-47 · RF-48">
+        <div className="grid gap-3 md:grid-cols-3">
+          {[
+            { t: "Ventas por función", d: `${filas.length} funciones · ${filas.reduce((a, r) => a + r.vendidos, 0).toLocaleString("es-GT")} boletos`, f: () => csvVentas(filas) },
+            {
+              t: "Bitácora de auditoría",
+              d: `${bitacora.length} registros`,
+              f: () => descargarCsv("bitacora", [["fecha", "usuario", "accion", "detalle"], ...bitacora.map((l) => [l.fecha, l.usuario, l.accion, l.detalle])]),
+            },
+            {
+              t: "Usuarios y roles",
+              d: `${lista.length} cuentas`,
+              f: () =>
+                descargarCsv("usuarios", [
+                  ["nombre", "correo", "rol", "estado", "alta"],
+                  ...lista.map(([correo, c]) => [c.nombre, correo, ROL_TXT[c.rol], c.activo ? "activo" : "baja", c.creado.slice(0, 10)]),
+                ]),
+            },
+          ].map((x) => (
+            <button key={x.t} onClick={x.f} className="group flex items-center justify-between gap-3 rounded-lg border border-borde bg-fondo/60 p-4 text-left transition-colors hover:border-arena">
+              <span>
+                <span className="block text-sm font-bold">{x.t}</span>
+                <span className="block text-[11px] text-tenue">{x.d}</span>
+              </span>
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-borde text-arena group-hover:border-arena group-hover:text-tinta">⤓</span>
+            </button>
+          ))}
         </div>
-        <table className="w-full min-w-[760px] text-sm">
-          <thead className="border-b border-borde">
-            <tr>
-              <th className={thCls}>Película</th>
-              <th className={thCls}>Formato</th>
-              <th className={thCls}>Fecha / inicio</th>
-              <th className={thCls}>Estado venta</th>
-              <th className={thCls}>Ocupación</th>
-              <th className={`${thCls} text-right`}>Rendimiento</th>
-              <th className={thCls}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {proximas.map((f) => {
-              const p = pelicula(f.peliculaId);
-              const o = ocupacion(f.id);
-              const cap = sala(f.salaId).aforo;
-              const pct = Math.round((o.vendidos.size / cap) * 100);
-              const estado = f.eventoId ? ["Preventa · cola virtual", "badge-vino"] : pct >= 100 ? ["Sold out", "badge-vino"] : ["En venta activa", "badge-borde"];
-              return (
-                <tr key={f.id} className="border-b border-borde/60 last:border-0">
-                  <td className="py-3 pr-3">
-                    <div className="flex items-center gap-3">
-                      <Poster p={p} className="aspect-[2/3] w-9 shrink-0" rounded="rounded" />
-                      <div>
-                        <p className="font-bold">{p.titulo}</p>
-                        <p className="text-[11px] text-tenue">
-                          {sala(f.salaId).nombre} · {sala(f.salaId).tipo}
-                        </p>
+      </Caja>
+
+      {/* Operación en vivo */}
+      <Caja icono="▦" titulo="Control de apertura y venta de taquilla" sub="Disponibilidad por sala y preventa">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="border-b border-borde">
+              <tr>
+                <th className={thCls}>Película</th>
+                <th className={thCls}>Formato</th>
+                <th className={thCls}>Fecha / inicio</th>
+                <th className={thCls}>Estado venta</th>
+                <th className={thCls}>Ocupación</th>
+                <th className={`${thCls} text-right`}>Rendimiento</th>
+                <th className={thCls}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {proximas.map(({ f, vendidos, cap, ingresos }) => {
+                const p = pelicula(f.peliculaId);
+                const pct = Math.round((vendidos / cap) * 100);
+                const estado = f.eventoId ? ["Preventa · cola virtual", "badge-vino"] : pct >= 100 ? ["Sold out", "badge-vino"] : ["En venta activa", "badge-borde"];
+                return (
+                  <tr key={f.id} className="border-b border-borde/60 last:border-0">
+                    <td className="py-3 pr-3">
+                      <div className="flex items-center gap-3">
+                        <Poster p={p} className="aspect-[2/3] w-9 shrink-0" rounded="rounded" sizes="36px" />
+                        <div>
+                          <p className="font-bold">{p.titulo}</p>
+                          <p className="text-[11px] text-tenue">
+                            {sala(f.salaId).nombre} · {sala(f.salaId).tipo}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="pr-3">
-                    <span className="badge-borde">{f.formato}</span>
-                  </td>
-                  <td className="pr-3 text-xs">
-                    <p className="font-semibold">{fmtFecha(f.inicio)}</p>
-                    <p className="text-tenue">{fmtHora(f.inicio)} hrs</p>
-                  </td>
-                  <td className="pr-3">
-                    <span className={estado[1]}>{estado[0]}</span>
-                  </td>
-                  <td className="w-44 pr-3">
-                    <div className="flex justify-between text-[11px] font-bold">
-                      <span>{pct}%</span>
-                      <span className="text-tenue">
-                        {o.vendidos.size}/{cap}
-                      </span>
-                    </div>
-                    <div className="mt-1 h-1 rounded-full bg-fondo">
-                      <div className="h-full rounded-full bg-rojo" style={{ width: `${pct}%` }} />
-                    </div>
-                  </td>
-                  <td className="pr-3 text-right text-xs">
-                    <p className="font-bold text-oro">◆ {(o.vendidos.size * f.precio).toLocaleString("es-GT")}</p>
-                    <p className="text-tenue">créditos</p>
-                  </td>
-                  <td className="text-right">
-                    <button onClick={() => setMapa(f)} className="btn-borde px-3 py-2 text-[10px]">
-                      ▦ Ver mapa
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                    </td>
+                    <td className="pr-3">
+                      <span className="badge-borde">{f.formato}</span>
+                    </td>
+                    <td className="pr-3 text-xs">
+                      <p className="font-semibold">{fmtFecha(f.inicio)}</p>
+                      <p className="text-tenue">{fmtHora(f.inicio)} hrs</p>
+                    </td>
+                    <td className="pr-3">
+                      <span className={estado[1]}>{estado[0]}</span>
+                    </td>
+                    <td className="w-44 pr-3">
+                      <div className="flex justify-between text-[11px] font-bold">
+                        <span>{pct}%</span>
+                        <span className="text-tenue">
+                          {vendidos}/{cap}
+                        </span>
+                      </div>
+                      <div className="mt-1 h-1 overflow-hidden rounded-full bg-fondo">
+                        <div className="h-full origin-left rounded-full bg-rojo" style={{ transform: `scaleX(${pct / 100})` }} />
+                      </div>
+                    </td>
+                    <td className="pr-3 text-right text-xs">
+                      <p className="font-bold text-oro">◆ {ingresos.toLocaleString("es-GT")}</p>
+                      <p className="text-tenue">créditos</p>
+                    </td>
+                    <td className="text-right">
+                      <button onClick={() => setMapa(f)} className="btn-borde px-3 py-2 text-[10px]">
+                        ▦ Ver mapa
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Caja>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
         {/* Gráfica de una sola serie: reservas confirmadas por minuto */}
-        <div className={card}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="titulo text-lg">Reservas confirmadas por minuto</h2>
-              <p className="text-xs text-tenue">Últimos 12 minutos · se actualiza cada 2 s</p>
-            </div>
-            <span className="badge-borde">
-              <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-oro align-middle" /> En vivo: {serie[serie.length - 1]}/min
-            </span>
-          </div>
-          <div className="relative mt-6 h-56" onMouseLeave={() => setSobre(null)}>
+        <Caja icono="▥" titulo="Reservas confirmadas por minuto" sub="Simulación · últimos 12 minutos, cada 2 s" accion={<span className="badge-borde">En vivo: {serie[serie.length - 1]}/min</span>}>
+          <div className="relative h-56" onMouseLeave={() => setSobre(null)}>
             {[0.25, 0.5, 0.75, 1].map((g) => (
               <div key={g} className="absolute inset-x-0 border-t border-borde/50" style={{ bottom: `${g * 100}%` }}>
                 <span className="absolute -top-2 right-0 bg-panel pl-1 text-[9px] text-apagado">{Math.round(max * g)}</span>
@@ -273,12 +494,16 @@ function General() {
             <div className="absolute inset-0 flex items-end gap-[2px] pr-6">
               {serie.map((v, i) => (
                 <div key={i} className="relative flex h-full flex-1 items-end" onMouseEnter={() => setSobre(i)}>
+                  {/* scaleY en vez de height: la barra crece en el compositor sin recalcular el layout */}
                   <div
-                    className={`w-full rounded-t-[4px] bg-[#c8372d] transition-all duration-500 ${sobre !== null && sobre !== i ? "opacity-50" : ""}`}
-                    style={{ height: `${(v / max) * 100}%` }}
+                    className={`h-full w-full origin-bottom rounded-t-[4px] bg-[#c8372d] transition-[transform,opacity] duration-500 ${sobre !== null && sobre !== i ? "opacity-50" : ""}`}
+                    style={{ transform: `scaleY(${v / max})` }}
                   />
                   {sobre === i && (
-                    <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded border border-borde bg-fondo px-2 py-1 text-[11px] shadow-lg">
+                    <div
+                      className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-borde bg-fondo px-2 py-1 text-[11px] shadow-lg"
+                      style={{ bottom: `calc(${(v / max) * 100}% + 8px)` }}
+                    >
                       <b>{v}</b> <span className="text-tenue">reservas · hace {serie.length - 1 - i} min</span>
                     </div>
                   )}
@@ -290,23 +515,16 @@ function General() {
             <span>−11 min</span>
             <span>ahora</span>
           </div>
-        </div>
+        </Caja>
 
         {/* Eventos en vivo */}
-        <div className={card}>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h2 className="titulo text-lg">Eventos en vivo</h2>
-              <p className="text-xs text-tenue">Locks, validaciones de token y pagos.</p>
-            </div>
-            <span className="badge-borde">Redis · WebSocket</span>
-          </div>
-          <div className="mt-4 h-56 space-y-1.5 overflow-hidden rounded-md border border-borde bg-fondo p-3 text-[11px] leading-relaxed">
+        <Caja icono="⌁" titulo="Eventos en vivo" sub="Simulación de locks, tokens y pagos">
+          <div className="h-56 space-y-1.5 overflow-hidden rounded-md border border-borde bg-fondo p-3 text-[11px] leading-relaxed">
             {log.length === 0 && <p className="text-apagado">Esperando eventos…</p>}
             {log.map((l, i) => (
-              <motion.p key={l + i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className={`truncate ${l.includes("Anti-bot") ? "text-salmon" : "text-tinta/85"}`}>
+              <m.p key={l + i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className={`truncate ${l.includes("Anti-bot") ? "text-salmon" : "text-tinta/85"}`}>
                 {l}
-              </motion.p>
+              </m.p>
             ))}
           </div>
           <div className="mt-3 flex justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-tenue">
@@ -315,19 +533,26 @@ function General() {
               {pausado ? "▶ Reanudar stream" : "❚❚ Pausar stream"}
             </button>
           </div>
-        </div>
+        </Caja>
       </div>
       <Modal abierto={!!mapa} onCerrar={() => setMapa(null)} titulo="Mapa de la sala · solo lectura" ancho="max-w-3xl">
         {mapa && <MapaSoloLectura f={mapa} />}
       </Modal>
-      <p className="text-[11px] text-apagado">Ocupación, ventas y créditos se calculan con los datos del prototipo; ritmo y eventos en vivo son simulados (en producción: /api/metricas).</p>
+      <p className="text-[11px] text-apagado">
+        {met
+          ? "Métricas clave, ocupación y ventas vienen de /api/metricas. El ritmo por minuto y el flujo de eventos son una simulación visual."
+          : "Sin API: ocupación, ventas y créditos se calculan con los datos del prototipo; ritmo y eventos en vivo son simulados."}
+      </p>
     </div>
   );
 }
 
 /* Vista de ocupación para el personal: no permite seleccionar ni comprar */
 function MapaSoloLectura({ f }: { f: Funcion }) {
-  const { ocupacion } = useApp();
+  const { ocupacion, cargarOcupacion } = useApp();
+  useEffect(() => {
+    cargarOcupacion([f.id]);
+  }, [f.id, cargarOcupacion]);
   const s = sala(f.salaId);
   const o = ocupacion(f.id);
   const pas = new Set(s.pasillos);
@@ -411,8 +636,8 @@ function Sparkline({ datos }: { datos: number[] }) {
 
 function Barra({ pct }: { pct: number }) {
   return (
-    <div className="h-1.5 rounded-full bg-fondo">
-      <div className="h-full rounded-full bg-arena" style={{ width: `${Math.max(2, Math.min(100, pct))}%` }} />
+    <div className="h-1.5 overflow-hidden rounded-full bg-fondo">
+      <div className="h-full origin-left rounded-full bg-arena" style={{ transform: `scaleX(${Math.max(2, Math.min(100, pct)) / 100})` }} />
     </div>
   );
 }
@@ -771,7 +996,7 @@ function Programar() {
           ⊕ Programar y publicar
         </button>
         {conflicto && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-md border border-rojo/60 bg-vino/40 p-3 text-sm">
+          <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-md border border-rojo/60 bg-vino/40 p-3 text-sm">
             <p className="font-bold text-salmon">Conflicto de horario</p>
             <p className="text-salmon/80">
               Se traslapa con «{pelicula(conflicto.con.peliculaId).titulo}» ({fmtHora(conflicto.con.inicio)}–{fmtHora(finFuncion(conflicto.con))}).
@@ -784,7 +1009,7 @@ function Programar() {
                 </button>
               ))}
             </div>
-          </motion.div>
+          </m.div>
         )}
       </div>
       <div className={card}>
@@ -798,7 +1023,7 @@ function Programar() {
             {ocupadas.map((o) => (
               <li key={o.id} className="flex items-center justify-between gap-3 rounded-md border border-borde bg-fondo px-3 py-2 text-sm">
                 <span className="flex items-center gap-2">
-                  <Poster p={pelicula(o.peliculaId)} className="aspect-[2/3] w-7" rounded="rounded-sm" />
+                  <Poster p={pelicula(o.peliculaId)} className="aspect-[2/3] w-7" rounded="rounded-sm" sizes="28px" />
                   {pelicula(o.peliculaId).titulo}
                 </span>
                 <span className="text-xs font-bold text-tenue">
@@ -831,6 +1056,7 @@ function Programar() {
 /* ─────────── Inventario (RF-66) ─────────── */
 function Inventario() {
   const { funciones, ocupacion } = useApp();
+  useOcupacionVigente();
   return (
     <div className={`${card} overflow-x-auto`}>
       <table className="w-full min-w-[640px] text-sm">
@@ -874,15 +1100,28 @@ function Inventario() {
 
 /* ─────────── Validar acceso (RF-09, RF-27, RF-28) ─────────── */
 function Validar() {
-  const { validarBoleto, cuentas, funciones } = useApp();
+  const { validarBoleto, cuentas, funciones, modoApi } = useApp();
   const [codigo, setCodigo] = useState("");
-  const [res, setRes] = useState<ReturnType<typeof validarBoleto> | null>(null);
-  const validar = (c = codigo) => setRes(validarBoleto(c));
+  const [res, setRes] = useState<Validacion | null>(null);
+  const [validando, setValidando] = useState(false);
+  // Con la API, la validación es atómica en PostgreSQL (POST /api/boletos/{token}/validar).
+  const validar = async (c = codigo) => {
+    if (!c.trim() || validando) return;
+    setValidando(true);
+    try {
+      setRes(await validarBoleto(c.trim()));
+    } finally {
+      setValidando(false);
+    }
+  };
   const f = res?.boleto && funciones.find((x) => x.id === res.boleto!.funcionId);
-  const recientes = Object.values(cuentas)
-    .flatMap((c) => c.boletos)
-    .sort((a, b) => b.emitido.localeCompare(a.emitido))
-    .slice(0, 5);
+  const recientes =
+    modoApi === "conectado"
+      ? []
+      : Object.values(cuentas)
+          .flatMap((c) => c.boletos)
+          .sort((a, b) => b.emitido.localeCompare(a.emitido))
+          .slice(0, 5);
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
@@ -891,9 +1130,12 @@ function Validar() {
           Código del boleto (lector QR en modo teclado)
           <input autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} onKeyDown={(e) => e.key === "Enter" && validar()} placeholder="CE-…" className="campo normal-case tracking-normal" />
         </label>
-        <button onClick={() => validar()} className="btn-vino w-full py-3.5">
-          Validar
+        <button onClick={() => validar()} disabled={validando} className="btn-vino w-full py-3.5 disabled:opacity-60">
+          {validando ? "Validando…" : "Validar"}
         </button>
+        {modoApi === "conectado" && (
+          <p className="text-xs text-apagado">Conectado a la API: pega el token de un boleto comprado (Mis Entradas → abrir QR). Cada boleto sólo puede validarse una vez.</p>
+        )}
         {recientes.length > 0 && (
           <div>
             <p className="etiqueta mb-1.5">Boletos emitidos recientemente (para probar)</p>
@@ -906,7 +1148,7 @@ function Validar() {
         )}
       </div>
       {res && (
-        <motion.div
+        <m.div
           key={JSON.stringify(res)}
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -920,8 +1162,9 @@ function Validar() {
                 {pelicula(f.peliculaId).titulo} · {sala(f.salaId).nombre} · {fmtHora(f.inicio)} · Butaca {res.boleto!.asiento}
               </p>
             )}
+            {res.boleto?.titular && <p className="mt-1 text-xs text-apagado">Titular: {res.boleto.titular}</p>}
           </div>
-        </motion.div>
+        </m.div>
       )}
     </div>
   );
@@ -971,25 +1214,13 @@ function Parametros() {
 
 /* ─────────── Reportes (RF-13, RF-47, RF-48) ─────────── */
 function Reportes() {
-  const { funciones, ocupacion } = useApp();
-  const filas = funciones.map((f) => {
-    const o = ocupacion(f.id);
-    const cap = sala(f.salaId).aforo;
-    return { f, vendidos: o.vendidos.size, cap, ingresos: o.vendidos.size * f.precio };
-  });
+  const met = useMetricas();
+  useOcupacionVigente();
+  const filas = useFilasVentas(met);
   const total = filas.reduce((a, r) => a + r.ingresos, 0);
   const boletos = filas.reduce((a, r) => a + r.vendidos, 0);
-  const ocupacionProm = Math.round((boletos / filas.reduce((a, r) => a + r.cap, 0)) * 100);
-  const exportar = () => {
-    const csv = [
-      "fecha,pelicula,sala,funcion,vendidos,aforo,ocupacion,ingresos_creditos",
-      ...filas.map((r) => `${fmtFecha(r.f.inicio)},${pelicula(r.f.peliculaId).titulo},${sala(r.f.salaId).nombre},${fmtHora(r.f.inicio)},${r.vendidos},${r.cap},${Math.round((r.vendidos / r.cap) * 100)}%,${r.ingresos}`),
-    ].join("\n");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-    a.download = `reporte_ventas_${new Date().toISOString().slice(0, 10).replaceAll("-", "")}.csv`;
-    a.click();
-  };
+  const ocupacionProm = Math.round((boletos / Math.max(filas.reduce((a, r) => a + r.cap, 0), 1)) * 100);
+  const exportar = () => csvVentas(filas);
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-3">
@@ -1028,8 +1259,8 @@ function Reportes() {
                   </td>
                   <td className="pr-3">
                     <div className="flex items-center gap-2">
-                      <div className="h-1 flex-1 rounded-full bg-fondo">
-                        <div className="h-full rounded-full bg-rojo" style={{ width: `${pct}%` }} />
+                      <div className="h-1 flex-1 overflow-hidden rounded-full bg-fondo">
+                        <div className="h-full origin-left rounded-full bg-rojo" style={{ transform: `scaleX(${pct / 100})` }} />
                       </div>
                       <span className="w-9 text-right text-xs font-bold">{pct}%</span>
                     </div>

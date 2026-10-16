@@ -1,13 +1,20 @@
 "use client";
 
-// Estado del prototipo. Simula en el navegador lo que en producción hacen
-// el servicio de reservas (Redis, TTL de 5 min) y el módulo de créditos (PostgreSQL, SELECT ... FOR UPDATE).
-// Cada usuario tiene su propia cuenta de créditos, movimientos y boletos (tabla cuentas_credito por usuario_id).
+// Estado de la aplicación.
+//
+// Con la API en Go disponible (NEXT_PUBLIC_API_URL + `docker compose up`), el catálogo, la ocupación de butacas,
+// las reservas (Redis, TTL 5 min), los pagos (PostgreSQL, SELECT … FOR UPDATE), el saldo, los boletos,
+// la trivia y la validación de acceso se leen y escriben en el backend.
+// Sin API, el prototipo simula todo eso en el navegador (localStorage), como antes.
+// El inicio de sesión, los roles, la gestión de usuarios y la bitácora siguen siendo locales (pendiente: JWT + bcrypt).
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { Suspense, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
+import { AnimatePresence, LazyMotion, MotionConfig, domAnimation, m } from "framer-motion";
 import { Modal } from "@/components/Modal";
 import { codigoDinamico, ventanaActual } from "./seguridad";
+import { restablecerScroll } from "./bloqueoScroll";
+import { ApiError, api, apiConfigurada, type AsientosApi, type BoletoApi, type CuentaApi, type FuncionApi, type MovimientoApi } from "./api";
 import { CLAVE_DEMO, USUARIOS_DEMO, funcionesBase, PARAMETROS, type Funcion, type Rol, ocupacionSimulada } from "./data";
 
 export type Usuario = { nombre: string; correo: string; rol: Rol };
@@ -27,6 +34,9 @@ export type Cuenta = {
   partidasCobradas: string[];
 };
 export type Resultado = { ok: boolean; error?: string };
+export type Validacion = { ok: boolean; motivo: string; boleto?: Boleto };
+// verificando: esperando /api/salud · conectado: datos reales de Go · local: simulación en el navegador
+export type ModoApi = "verificando" | "conectado" | "local";
 
 type Estado = {
   usuario: Usuario | null;
@@ -40,9 +50,11 @@ const INICIAL: Estado = { usuario: null, cuentas: {}, reserva: null, funcionesEx
 
 type Toast = { id: number; texto: string; tipo: "ok" | "error" | "info" };
 type Aviso = { titulo: string; texto: string; icono: string };
+type Ocupacion = { vendidos: Set<string>; retenidos: Set<string> };
 
 type Ctx = {
   listo: boolean;
+  modoApi: ModoApi;
   usuario: Usuario | null;
   saldo: number;
   movimientos: Movimiento[];
@@ -51,7 +63,10 @@ type Ctx = {
   reserva: Reserva | null;
   bitacora: Log[];
   funciones: Funcion[];
-  ocupacion: (funcionId: string) => { vendidos: Set<string>; retenidos: Set<string> };
+  ocupacion: (funcionId: string) => Ocupacion;
+  // Con la API, trae del backend las butacas vendidas y retenidas de esas funciones (sin API no hace nada).
+  cargarOcupacion: (funcionIds: string[]) => Promise<void>;
+  refrescarCuenta: () => Promise<void>;
   login: (u: Usuario) => void;
   iniciarSesion: (correo: string, clave: string) => Resultado;
   registrarCliente: (nombre: string, correo: string, clave: string) => Resultado;
@@ -62,20 +77,26 @@ type Ctx = {
   editarUsuario: (correo: string, d: { nombre: string; rol: Rol }) => Resultado;
   cambiarEstadoUsuario: (correo: string, activo: boolean) => Resultado;
   logout: () => void;
-  reservar: (funcionId: string, asientos: string[]) => { ok: boolean; error?: string };
+  reservar: (funcionId: string, asientos: string[]) => Promise<Resultado>;
   cancelarReserva: (motivo?: "cancelada" | "expirada") => void;
-  retenerCreditos: () => { ok: boolean; error?: string };
-  pagar: () => { ok: boolean; error?: string; boletos?: Boleto[] };
-  acreditarTrivia: (partidaId: string, monto: number) => boolean;
-  validarBoleto: (token: string) => { ok: boolean; motivo: string; boleto?: Boleto };
+  retenerCreditos: () => Resultado;
+  pagar: () => Promise<Resultado & { boletos?: Boleto[] }>;
+  acreditarTrivia: (partidaId: string, aciertos: number) => Promise<{ ok: boolean; monto: number; error?: string }>;
+  validarBoleto: (token: string) => Promise<Validacion>;
   programarFuncion: (f: Funcion) => void;
   registrar: (accion: string, detalle: string) => void;
   toast: (texto: string, tipo?: Toast["tipo"]) => void;
   // Inicio de sesión en ventana emergente: el usuario no sale de la página en la que está.
   loginAbierto: boolean;
+  loginUsado: boolean;
   abrirLogin: (modo?: "login" | "registro") => void;
   cerrarLogin: () => void;
   modoLogin: "login" | "registro";
+  // Trivia en ventana emergente: se abre encima de la compra sin desmontarla ni perder la selección.
+  triviaAbierta: boolean;
+  triviaUsada: boolean;
+  abrirTrivia: () => void;
+  cerrarTrivia: () => void;
 };
 
 const AppCtx = createContext<Ctx | null>(null);
@@ -83,6 +104,10 @@ const CLAVE = "cineight-prototipo-v3";
 const VERIFICACION_ADMIN_MS = 5 * 60000;
 const uid = () => Math.random().toString(36).slice(2, 10).toUpperCase();
 const ahoraISO = () => new Date().toISOString();
+
+// Premio de una partida: 10 créditos por acierto; si acierta todas, 50. (Con la API lo calcula el servidor.)
+export const premioTrivia = (aciertos: number) =>
+  aciertos === PARAMETROS.preguntasTrivia ? PARAMETROS.bonoTriviaPerfecta : aciertos * PARAMETROS.creditosPorRespuesta;
 
 // Hash de demostración (FNV-1a con sal = correo). En producción: bcrypt en el backend (RNF-09).
 export function hashClave(correo: string, clave: string) {
@@ -125,6 +150,49 @@ function conCuenta(s: Estado, correo: string, f: (c: Cuenta) => Cuenta): Record<
 
 const todosLosBoletos = (s: Estado) => Object.values(s.cuentas).flatMap((c) => c.boletos);
 
+// ───────── Conversión de las respuestas de Go al modelo de la interfaz ─────────
+
+const funcionDeApi = (f: FuncionApi): Funcion => ({
+  id: f.codigo,
+  peliculaId: f.pelicula,
+  salaId: f.sala,
+  inicio: f.inicio,
+  formato: f.formato,
+  idioma: f.idioma,
+  precio: f.precio,
+  ...(f.evento ? { eventoId: f.evento } : {}),
+});
+
+const ESTADO_BOLETO: Record<BoletoApi["estado"], Boleto["estado"]> = { valido: "VÁLIDO", utilizado: "UTILIZADO", anulado: "ANULADO", reembolsado: "REEMBOLSADO" };
+const boletoDeApi = (b: BoletoApi, titular: string): Boleto => ({
+  token: b.token,
+  funcionId: b.funcion,
+  asiento: b.asiento,
+  precio: b.precio,
+  estado: ESTADO_BOLETO[b.estado],
+  emitido: b.fecha,
+  titular,
+});
+
+const TIPO_MOV: Record<MovimientoApi["tipo"], Movimiento["tipo"]> = { recarga: "recarga", retencion: "retención", debito: "débito", liberacion: "liberación", reembolso: "reembolso" };
+function referenciaLegible(ref: string) {
+  if (ref.startsWith("bono-bienvenida")) return "Bono de bienvenida";
+  if (ref.startsWith("trivia:")) return `Trivia ${ref.slice(7)}`;
+  if (ref.startsWith("R-")) return `Pago ${ref}`;
+  return ref;
+}
+const movimientoDeApi = (x: MovimientoApi): Movimiento => ({ id: String(x.id), tipo: TIPO_MOV[x.tipo], monto: x.monto, ref: referenciaLegible(x.referencia), fecha: x.fecha });
+
+// Red de seguridad del bloqueo de scroll: al cambiar de página, si no hay ventanas abiertas, el body se libera.
+// Va en su propio componente (dentro de <Suspense>) para que usePathname no bloquee el prerender.
+function ScrollPorRuta() {
+  const ruta = usePathname();
+  useEffect(() => restablecerScroll(), [ruta]);
+  return null;
+}
+
+const mensaje = (e: unknown) => (e instanceof Error ? e.message : "Error inesperado.");
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [e, setE] = useState<Estado>(INICIAL);
   const [listo, setListo] = useState(false);
@@ -132,16 +200,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [aviso, setAviso] = useState<Aviso | null>(null);
   const [adminHasta, setAdminHasta] = useState(0);
   const [loginAbierto, setLoginAbierto] = useState(false);
+  const [loginUsado, setLoginUsado] = useState(false);
   const [modoLogin, setModoLogin] = useState<"login" | "registro">("login");
+  const [triviaAbierta, setTriviaAbierta] = useState(false);
+  const [triviaUsada, setTriviaUsada] = useState(false);
   const [reloj, setReloj] = useState(0);
+
+  // Estado que viene de la API (no se guarda en localStorage).
+  const [modoApi, setModoApi] = useState<ModoApi>(apiConfigurada ? "verificando" : "local");
+  const [funcionesApi, setFuncionesApi] = useState<Funcion[] | null>(null);
+  const [asientosApi, setAsientosApi] = useState<Record<string, AsientosApi>>({});
+  const [sesionApi, setSesionApi] = useState<{ correo: string; id: number } | null>(null);
+  const [cuentaApi, setCuentaApi] = useState<CuentaApi | null>(null);
+
   useEffect(() => {
     const t = setInterval(() => setReloj(Date.now()), 15000);
     return () => clearInterval(t);
   }, []);
   const ref = useRef(e);
+  const modoRef = useRef(modoApi);
+  const sesionRef = useRef(sesionApi);
   useLayoutEffect(() => {
     ref.current = e;
-  }, [e]);
+    modoRef.current = modoApi;
+    sesionRef.current = sesionApi;
+  }, [e, modoApi, sesionApi]);
+
 
   useEffect(() => {
     try {
@@ -169,13 +253,89 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
   }, []);
 
+  // ¿Responde la API? Si no, el prototipo sigue con datos simulados.
+  useEffect(() => {
+    if (!apiConfigurada) return;
+    let vivo = true;
+    api
+      .salud()
+      .then(() => api.funciones())
+      .then((fs) => {
+        if (!vivo) return;
+        setFuncionesApi(fs.map(funcionDeApi));
+        setModoApi("conectado");
+      })
+      .catch(() => {
+        if (!vivo) return;
+        setModoApi("local");
+        toast("La API no responde: se usan datos de demostración.", "info");
+      });
+    return () => {
+      vivo = false;
+    };
+  }, [toast]);
+
+  // Vincula al cliente con su cuenta de créditos en PostgreSQL.
+  const correoCliente = e.usuario?.rol === "cliente" ? e.usuario.correo : null;
+  const nombreCliente = e.usuario?.nombre ?? "";
+  useEffect(() => {
+    if (modoApi !== "conectado" || !correoCliente || sesionApi?.correo === correoCliente) return;
+    let vivo = true;
+    api
+      .sesion(correoCliente, nombreCliente)
+      .then(async (s) => {
+        const c = await api.cuenta(s.usuario_id);
+        if (!vivo) return;
+        setSesionApi({ correo: correoCliente, id: s.usuario_id });
+        setCuentaApi(c);
+      })
+      .catch((err) => vivo && toast(`No se pudo cargar tu cuenta: ${mensaje(err)}`, "error"));
+    return () => {
+      vivo = false;
+    };
+  }, [modoApi, correoCliente, nombreCliente, sesionApi, toast]);
+
+  const asegurarSesion = useCallback(async () => {
+    const u = ref.current.usuario;
+    if (!u) throw new ApiError(401, "Debes iniciar sesión.");
+    const s = sesionRef.current;
+    if (s?.correo === u.correo) return s.id;
+    const r = await api.sesion(u.correo, u.nombre);
+    setSesionApi({ correo: u.correo, id: r.usuario_id });
+    return r.usuario_id;
+  }, []);
+
+  const refrescarCuenta = useCallback(async () => {
+    const s = sesionRef.current;
+    if (modoRef.current !== "conectado" || !s) return;
+    try {
+      setCuentaApi(await api.cuenta(s.id));
+    } catch {}
+  }, []);
+
+  const cargarOcupacion = useCallback(async (ids: string[]) => {
+    if (modoRef.current !== "conectado" || ids.length === 0) return;
+    const pares = await Promise.all(ids.map((id) => api.asientos(id).then((r) => [id, r] as const).catch(() => null)));
+    const nuevos = Object.fromEntries(pares.filter((p) => p !== null));
+    if (Object.keys(nuevos).length) setAsientosApi((a) => ({ ...a, ...nuevos }));
+  }, []);
+
   const registrar = useCallback((accion: string, detalle: string) => setE((s) => ({ ...s, bitacora: log(s, accion, detalle) })), []);
 
-  const funciones = useMemo(() => [...funcionesBase(), ...e.funcionesExtra], [e.funcionesExtra]);
+  // Con la API se usan sus funciones; las de la tabla local quedan como respaldo para boletos de funciones ya terminadas.
+  const funciones = useMemo(() => {
+    const porCodigo = new Map(funcionesBase().map((f) => [f.id, f]));
+    if (modoApi === "conectado" && funcionesApi) for (const f of funcionesApi) porCodigo.set(f.id, f);
+    return [...porCodigo.values(), ...e.funcionesExtra];
+  }, [modoApi, funcionesApi, e.funcionesExtra]);
   const vendidosGlobales = useMemo(() => todosLosBoletos(e), [e]);
 
   const ocupacion = useCallback(
-    (funcionId: string) => {
+    (funcionId: string): Ocupacion => {
+      if (modoApi === "conectado") {
+        const d = asientosApi[funcionId];
+        return { vendidos: new Set(d?.vendidos ?? []), retenidos: new Set(d?.retenidos ?? []) };
+      }
       const sim = ocupacionSimulada(funcionId);
       for (const b of vendidosGlobales)
         if (b.funcionId === funcionId && (b.estado === "VÁLIDO" || b.estado === "UTILIZADO")) sim.vendidos.add(b.asiento);
@@ -183,16 +343,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (r && r.funcionId === funcionId && r.titular !== e.usuario?.correo) r.asientos.forEach((a) => sim.retenidos.add(a));
       return sim;
     },
-    [vendidosGlobales, e.reserva, e.usuario],
+    [modoApi, asientosApi, vendidosGlobales, e.reserva, e.usuario],
   );
 
   const cancelarReserva = useCallback((motivo: "cancelada" | "expirada" = "cancelada") => {
     const r = ref.current.reserva;
     if (!r) return;
+    const conApi = modoRef.current === "conectado";
+    // Con la API, las butacas se liberan en Redis; al expirar, el TTL ya lo hizo solo.
+    if (conApi && motivo === "cancelada") api.cancelarReserva(r.id).catch(() => {});
+    // Sin API, los créditos retenidos se devuelven al saldo local. Con la API nunca se descontaron (el pago es atómico).
+    const devolver = !conApi && r.creditosRetenidos > 0;
     setE((s) => ({
       ...s,
       reserva: null,
-      cuentas: r.creditosRetenidos
+      cuentas: devolver
         ? conCuenta(s, r.titular, (c) => ({
             ...c,
             saldo: c.saldo + r.creditosRetenidos,
@@ -206,12 +371,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         icono: "⏱",
         titulo: "Tiempo agotado",
         texto: `Tu reserva de ${r.asientos.join(", ")} venció a los ${PARAMETROS.retencionMinutos} minutos. Los asientos fueron liberados${
-          r.creditosRetenidos ? ` y se devolvieron ${r.creditosRetenidos} créditos a tu saldo` : ""
+          devolver ? ` y se devolvieron ${r.creditosRetenidos} créditos a tu saldo` : ""
         }.`,
       });
   }, []);
 
-  // Temporizador de expiración (en producción: TTL de la clave en Redis + aviso por WebSocket/SSE)
+  // Temporizador de expiración (con la API, Redis libera las butacas con el TTL; aquí sólo se avisa al cliente)
   useEffect(() => {
     if (!e.reserva) return;
     const ms = e.reserva.expira - Date.now();
@@ -230,6 +395,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (ref.current.usuario && Date.now() - ultimaActividad.current > PARAMETROS.inactividadMinutos * 60000) {
         cancelarReserva();
         setE((s) => ({ ...s, usuario: null, bitacora: log(s, "SESION_EXPIRADA", "Inactividad") }));
+        setSesionApi(null);
+        setCuentaApi(null);
+        setTriviaAbierta(false);
         setAviso({
           icono: "🔒",
           titulo: "Sesión cerrada por seguridad",
@@ -244,27 +412,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [cancelarReserva]);
 
   const cuenta = e.usuario ? e.cuentas[e.usuario.correo] : undefined;
+  const reservaPropia = e.reserva && e.reserva.titular === e.usuario?.correo ? e.reserva : null;
+  const cuentaRemota = modoApi === "conectado" && e.usuario?.rol === "cliente";
+  const cuentaApiVigente = cuentaRemota && sesionApi?.correo === e.usuario?.correo ? cuentaApi : null;
 
   const valor: Ctx = {
     listo,
+    modoApi,
     usuario: e.usuario,
-    saldo: cuenta?.saldo ?? 0,
-    movimientos: cuenta?.movimientos ?? [],
-    boletos: cuenta?.boletos ?? [],
+    // Con la API, la retención de créditos es sólo visual: el débito real ocurre en una transacción al pagar.
+    saldo: cuentaRemota ? Math.max(0, (cuentaApiVigente?.saldo ?? 0) - (reservaPropia?.creditosRetenidos ?? 0)) : (cuenta?.saldo ?? 0),
+    movimientos: cuentaRemota ? (cuentaApiVigente?.movimientos.map(movimientoDeApi) ?? []) : (cuenta?.movimientos ?? []),
+    boletos: cuentaRemota ? (cuentaApiVigente?.boletos.map((b) => boletoDeApi(b, e.usuario!.correo)) ?? []) : (cuenta?.boletos ?? []),
     cuentas: e.cuentas,
-    reserva: e.reserva && e.reserva.titular === e.usuario?.correo ? e.reserva : null,
+    reserva: reservaPropia,
     bitacora: e.bitacora,
     funciones,
     ocupacion,
+    cargarOcupacion,
+    refrescarCuenta,
     toast,
     registrar,
     loginAbierto,
+    loginUsado,
     modoLogin,
     abrirLogin: (modo = "login") => {
       setModoLogin(modo);
+      setLoginUsado(true);
       setLoginAbierto(true);
     },
     cerrarLogin: () => setLoginAbierto(false),
+    triviaAbierta,
+    triviaUsada,
+    abrirTrivia: () => {
+      setTriviaUsada(true);
+      setTriviaAbierta(true);
+    },
+    cerrarTrivia: () => setTriviaAbierta(false),
     login: (u) => {
       // Acceso rápido de demostración: usa el rol y nombre vigentes de la cuenta (pueden haber sido editados por el admin).
       const c = ref.current.cuentas[u.correo];
@@ -355,19 +539,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logout: () => {
       cancelarReserva();
       setAdminHasta(0);
+      setSesionApi(null);
+      setCuentaApi(null);
+      setTriviaAbierta(false);
+      setLoginAbierto(false);
       setE((s) => ({ ...s, usuario: null, bitacora: log(s, "CIERRE_SESION", "") }));
     },
-    reservar: (funcionId, asientos) => {
+    reservar: async (funcionId, asientos) => {
       const s = ref.current;
       if (!s.usuario) return { ok: false, error: "Debes iniciar sesión para reservar asientos." };
       if (s.reserva && s.reserva.titular === s.usuario.correo) return { ok: false, error: "Ya tienes una reserva activa." };
       if (asientos.length === 0) return { ok: false, error: "Selecciona al menos una butaca." };
       if (asientos.length > PARAMETROS.maxButacasPorTransaccion) return { ok: false, error: `Máximo ${PARAMETROS.maxButacasPorTransaccion} butacas por transacción.` };
+      const titular = s.usuario.correo;
+
+      if (modoRef.current === "conectado") {
+        // POST /api/reservas: SET NX + TTL en Redis. El servidor decide si las butacas siguen libres
+        // y aplica el límite de boletos del preestreno.
+        try {
+          const id = await asegurarSesion();
+          const res = await api.crearReserva(funcionId, id, asientos);
+          // El vencimiento se cuenta con el reloj local para no depender del desfase entre equipos.
+          const r: Reserva = { id: res.reserva_id, titular, funcionId, asientos, expira: Date.now() + PARAMETROS.retencionMinutos * 60000 - 1000, creditosRetenidos: 0 };
+          setE((st) => ({ ...st, reserva: r, bitacora: log(st, "RESERVA_CREADA", `${r.id} · ${asientos.join(", ")}`) }));
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: mensaje(err) };
+        } finally {
+          cargarOcupacion([funcionId]);
+        }
+      }
+
       const f = funciones.find((x) => x.id === funcionId);
       if (f?.eventoId) {
-        const yaTiene = (s.cuentas[s.usuario.correo]?.boletos ?? []).filter(
-          (b) => b.funcionId === funcionId && b.estado !== "ANULADO" && b.estado !== "REEMBOLSADO",
-        ).length;
+        const yaTiene = (s.cuentas[titular]?.boletos ?? []).filter((b) => b.funcionId === funcionId && b.estado !== "ANULADO" && b.estado !== "REEMBOLSADO").length;
         if (yaTiene + asientos.length > PARAMETROS.maxBoletosPorEvento)
           return { ok: false, error: `El preestreno permite ${PARAMETROS.maxBoletosPorEvento} boletos por cliente${yaTiene ? ` (ya tienes ${yaTiene})` : ""}.` };
       }
@@ -376,7 +581,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (tomados.length) return { ok: false, error: `La butaca ${tomados.join(", ")} ya no está disponible.` };
       // Simula concurrencia: ~10% de probabilidad de que otro comprador gane la carrera (SET NX en Redis)
       if (Math.random() < 0.1) return { ok: false, error: `Otro cliente reservó ${asientos[0]} un instante antes. Elige otra butaca.` };
-      const r: Reserva = { id: "R-" + uid(), titular: s.usuario.correo, funcionId, asientos, expira: Date.now() + PARAMETROS.retencionMinutos * 60000, creditosRetenidos: 0 };
+      const r: Reserva = { id: "R-" + uid(), titular, funcionId, asientos, expira: Date.now() + PARAMETROS.retencionMinutos * 60000, creditosRetenidos: 0 };
       setE((st) => ({ ...st, reserva: r, bitacora: log(st, "RESERVA_CREADA", `${r.id} · ${asientos.join(", ")}`) }));
       return { ok: true };
     },
@@ -388,24 +593,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (r.creditosRetenidos) return { ok: true };
       const f = funciones.find((x) => x.id === r.funcionId)!;
       const total = f.precio * r.asientos.length;
-      const saldo = s.cuentas[r.titular]?.saldo ?? 0;
+      const conApi = modoRef.current === "conectado";
+      const saldo = conApi ? (cuentaApi?.saldo ?? 0) : (s.cuentas[r.titular]?.saldo ?? 0);
       if (saldo < total) return { ok: false, error: `Saldo insuficiente: necesitas ${total} créditos y tienes ${saldo}.` };
       setE((st) => ({
         ...st,
         reserva: st.reserva && { ...st.reserva, creditosRetenidos: total },
-        cuentas: conCuenta(st, r.titular, (c) => ({
-          ...c,
-          saldo: c.saldo - total,
-          movimientos: [{ id: uid(), tipo: "retención", monto: -total, ref: r.id, fecha: ahoraISO() }, ...c.movimientos],
-        })),
+        cuentas: conApi
+          ? st.cuentas
+          : conCuenta(st, r.titular, (c) => ({
+              ...c,
+              saldo: c.saldo - total,
+              movimientos: [{ id: uid(), tipo: "retención", monto: -total, ref: r.id, fecha: ahoraISO() }, ...c.movimientos],
+            })),
       }));
       return { ok: true };
     },
-    pagar: () => {
+    pagar: async () => {
       const s = ref.current;
       const r = s.reserva;
       if (!r || !s.usuario || r.titular !== s.usuario.correo) return { ok: false, error: "La reserva expiró." };
       if (!r.creditosRetenidos) return { ok: false, error: "Primero confirma la compra para retener los créditos." };
+
+      if (modoRef.current === "conectado") {
+        // POST /api/reservas/{id}/pagar: transacción con SELECT … FOR UPDATE; repetirla no vuelve a cobrar.
+        try {
+          const p = await api.pagar(r.id);
+          const nuevos = p.boletos.map((b) => boletoDeApi(b, r.titular));
+          setE((st) => ({ ...st, reserva: null, bitacora: log(st, "VENTA", `${r.id} · ${r.asientos.join(", ")} · ${r.creditosRetenidos} cr.`) }));
+          await refrescarCuenta();
+          cargarOcupacion([r.funcionId]);
+          return { ok: true, boletos: nuevos };
+        } catch (err) {
+          const status = err instanceof ApiError ? err.status : 0;
+          if (status === 410 || status === 409) setE((st) => ({ ...st, reserva: null }));
+          if (status === 402) {
+            setE((st) => ({ ...st, reserva: st.reserva && { ...st.reserva, creditosRetenidos: 0 } }));
+            await refrescarCuenta();
+            return { ok: false, error: `Saldo insuficiente: necesitas ${r.creditosRetenidos} créditos.` };
+          }
+          return { ok: false, error: mensaje(err) };
+        }
+      }
+
       const f = funciones.find((x) => x.id === r.funcionId)!;
       const nuevos: Boleto[] = r.asientos.map((a) => ({
         token: "CE-" + uid() + uid(),
@@ -428,11 +658,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }));
       return { ok: true, boletos: nuevos };
     },
-    acreditarTrivia: (partidaId, monto) => {
+    acreditarTrivia: async (partidaId, aciertos) => {
       const s = ref.current;
-      if (!s.usuario) return false;
+      if (!s.usuario) return { ok: false, monto: 0, error: "Debes iniciar sesión." };
+      const monto = premioTrivia(aciertos);
+
+      if (modoRef.current === "conectado") {
+        // El servidor calcula el premio a partir de los aciertos y no acredita dos veces la misma partida (RF-64).
+        try {
+          const id = await asegurarSesion();
+          const r = await api.acreditarTrivia(id, partidaId, aciertos);
+          await refrescarCuenta();
+          setE((st) => ({ ...st, bitacora: log(st, "TRIVIA", `${partidaId} · +${r.acreditado ? r.monto : 0} cr.`) }));
+          return { ok: r.acreditado, monto: r.monto };
+        } catch (err) {
+          return { ok: false, monto, error: mensaje(err) };
+        }
+      }
+
       const correo = s.usuario.correo;
-      if (s.cuentas[correo]?.partidasCobradas.includes(partidaId)) return false; // idempotente (RF-64)
+      if (s.cuentas[correo]?.partidasCobradas.includes(partidaId)) return { ok: false, monto }; // idempotente (RF-64)
       setE((st) => ({
         ...st,
         cuentas: conCuenta(st, correo, (c) => ({
@@ -443,9 +688,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         })),
         bitacora: log(st, "TRIVIA", `${partidaId} · +${monto} cr.`),
       }));
-      return true;
+      return { ok: true, monto };
     },
-    validarBoleto: (token) => {
+    validarBoleto: async (token) => {
       const s = ref.current;
       // Acepta el contenido del QR (JSON con código dinámico) o el identificador escrito a mano.
       let tok = token.trim();
@@ -460,8 +705,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           tok = "";
         }
       }
+      let res: Validacion;
+      if (modoRef.current === "conectado") {
+        if (!tok) res = { ok: false, motivo: "Boleto inexistente" };
+        // El código dinámico se comprueba antes de llamar a la API: un QR vencido no consume el boleto.
+        else if (qrVencido) res = { ok: false, motivo: "Código QR vencido (posible captura de pantalla)" };
+        else {
+          try {
+            const r = await api.validarBoleto(tok);
+            res = { ok: r.ok, motivo: r.motivo, boleto: r.boleto && boletoDeApi(r.boleto, r.titular ?? "") };
+          } catch (err) {
+            res = { ok: false, motivo: mensaje(err) };
+          }
+        }
+        setE((st) => ({ ...st, bitacora: log(st, "VALIDACION_ACCESO", `${tok.slice(0, 6)}… · ${res.motivo}`) }));
+        return res;
+      }
+
       const b = todosLosBoletos(s).find((x) => x.token === tok);
-      let res: { ok: boolean; motivo: string; boleto?: Boleto };
       if (!b) res = { ok: false, motivo: "Boleto inexistente" };
       else if (qrVencido) res = { ok: false, motivo: "Código QR vencido (posible captura de pantalla)", boleto: b };
       else if (b.estado === "UTILIZADO") res = { ok: false, motivo: "Boleto ya utilizado", boleto: b };
@@ -483,41 +744,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppCtx.Provider value={valor}>
-      {listo ? children : <div className="py-24 text-center text-sm text-tenue">Cargando…</div>}
-      <div className="fixed bottom-4 right-4 z-50 flex w-[min(92vw,360px)] flex-col gap-2" role="status" aria-live="polite">
-        <AnimatePresence>
-          {toasts.map((t) => (
-            <motion.div
-              key={t.id}
-              initial={{ opacity: 0, y: 20, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, x: 40 }}
-              className={`rounded-lg border px-4 py-3 text-sm shadow-xl backdrop-blur ${
-                t.tipo === "ok"
-                  ? "border-oro/40 bg-panel/95 text-tinta"
-                  : t.tipo === "error"
-                    ? "border-rojo/60 bg-vino/95 text-salmon"
-                    : "border-borde bg-panel/95 text-tinta"
-              }`}
-            >
-              {t.tipo === "ok" && <span className="mr-2 text-oro">●</span>}
-              {t.texto}
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-      <Modal abierto={!!aviso} onCerrar={() => setAviso(null)} z="z-[60]">
-        {aviso && (
-          <div className="text-center">
-            <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-rojo/50 bg-vino text-2xl">{aviso.icono}</div>
-            <h2 className="titulo mt-3 text-xl">{aviso.titulo}</h2>
-            <p className="mt-2 text-sm text-tenue">{aviso.texto}</p>
-            <button onClick={() => setAviso(null)} className="btn-vino mt-5 w-full">
-              Entendido
-            </button>
+      {/* LazyMotion carga sólo las funciones de animación que se usan (domAnimation) y `strict`
+          impide volver a importar el `motion` completo por accidente. Respeta "reducir movimiento" del sistema. */}
+      <LazyMotion features={domAnimation} strict>
+        <Suspense fallback={null}>
+          <ScrollPorRuta />
+        </Suspense>
+        <MotionConfig reducedMotion="user">
+          {listo ? children : <div className="py-24 text-center text-sm text-tenue">Cargando…</div>}
+          <div className="fixed bottom-4 right-4 z-[70] flex w-[min(92vw,360px)] flex-col gap-2" role="status" aria-live="polite">
+            <AnimatePresence>
+              {toasts.map((t) => (
+                <m.div
+                  key={t.id}
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, x: 40 }}
+                  className={`rounded-lg border px-4 py-3 text-sm shadow-xl backdrop-blur ${
+                    t.tipo === "ok"
+                      ? "border-oro/40 bg-panel/95 text-tinta"
+                      : t.tipo === "error"
+                        ? "border-rojo/60 bg-vino/95 text-salmon"
+                        : "border-borde bg-panel/95 text-tinta"
+                  }`}
+                >
+                  {t.tipo === "ok" && <span className="mr-2 text-oro">●</span>}
+                  {t.texto}
+                </m.div>
+              ))}
+            </AnimatePresence>
           </div>
-        )}
-      </Modal>
+          <Modal abierto={!!aviso} onCerrar={() => setAviso(null)} z="z-[60]">
+            {aviso && (
+              <div className="text-center">
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-rojo/50 bg-vino text-2xl">{aviso.icono}</div>
+                <h2 className="titulo mt-3 text-xl">{aviso.titulo}</h2>
+                <p className="mt-2 text-sm text-tenue">{aviso.texto}</p>
+                <button onClick={() => setAviso(null)} className="btn-vino mt-5 w-full">
+                  Entendido
+                </button>
+              </div>
+            )}
+          </Modal>
+        </MotionConfig>
+      </LazyMotion>
     </AppCtx.Provider>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { EVENTOS, PARAMETROS, funcionesBase, pelicula } from "@/lib/data";
 import { BotonVolver } from "@/components/BotonVolver";
 
@@ -104,21 +104,21 @@ export default function ColaVirtual() {
         {usuario && fase === "esperando" && (
           <div className="text-center">
             <p className="etiqueta">Tu posición</p>
-            <motion.p key={posicion} initial={{ scale: 1.15, opacity: 0.6 }} animate={{ scale: 1, opacity: 1 }} className="mt-1 text-7xl font-black tabular-nums">
+            <m.p key={posicion} initial={{ scale: 1.15, opacity: 0.6 }} animate={{ scale: 1, opacity: 1 }} className="mt-1 text-7xl font-black tabular-nums">
               {posicion}
-            </motion.p>
+            </m.p>
             <p className="mt-1 text-sm text-tenue">
               Tiempo estimado: <b className="text-oro">~{minutosEspera} min</b>
             </p>
             <div className="mt-5 h-1.5 overflow-hidden rounded-full bg-fondo">
-              <motion.div className="h-full bg-rojo" animate={{ width: `${(1 - posicion / inicial) * 100}%` }} />
+              <m.div className="h-full bg-rojo" animate={{ width: `${(1 - posicion / inicial) * 100}%` }} />
             </div>
             <p className="etiqueta mt-4">{enCola.toLocaleString("es-GT")} personas en la cola · se actualiza automáticamente</p>
           </div>
         )}
 
         {usuario && fase === "turno" && (
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+          <m.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="text-center">
             <div className="mx-auto grid h-16 w-16 place-items-center rounded-xl border border-oro/50 bg-oro/10 text-3xl">🎟️</div>
             <h2 className="titulo mt-3 text-2xl">¡Es tu turno!</h2>
             <p className="mt-2 text-sm text-tenue">
@@ -137,7 +137,7 @@ export default function ColaVirtual() {
                 Turno vencido · volver a la cola
               </button>
             )}
-          </motion.div>
+          </m.div>
         )}
       </div>
     </div>

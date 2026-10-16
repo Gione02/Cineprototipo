@@ -37,8 +37,15 @@ npm run dev        # http://localhost:3000
 **Backend + base de datos + Redis** (requiere Docker):
 
 ```bash
-docker compose up -d --build   # API en http://localhost:8080
+docker compose down -v          # sólo la primera vez tras actualizar: db/init.sql cambió
+docker compose up -d --build    # API en http://localhost:8080
 ```
+
+**Conectar el frontend a la API:** `frontend/.env.local` (copia de `.env.example`) define
+`NEXT_PUBLIC_API_URL=http://localhost:8080`. Reinicia `npm run dev` tras crearlo o cambiarlo.
+El pie de página muestra el modo: **API conectada** (datos de PostgreSQL/Redis) o **Modo demostración**
+(si la API no responde, todo sigue funcionando con la simulación en el navegador).
+CORS acepta los orígenes de `CORS_ORIGINS` (por defecto `http://localhost:3000,http://127.0.0.1:3000`).
 
 ## Recorrido sugerido
 
@@ -75,17 +82,30 @@ docker compose up -d --build   # API en http://localhost:8080
 | Cola virtual | avance simulado | `ZADD NX` / `ZRANK` en Redis |
 | Anti-bots (RF-53) | casilla de verificación | límite de 5 solicitudes/min por IP, intentos registrados en la bitácora |
 
-El frontend todavía no consume la API: es un prototipo de interfaz con datos simulados.
-El backend se prueba con `curl`:
+Con la API conectada, el frontend usa datos reales para la cartelera, la ocupación de butacas, las reservas
+y el pago, el saldo y los movimientos del cliente, los créditos de la trivia, la validación de boletos y las
+métricas del panel. Siguen simulados: inicio de sesión (sin JWT), gestión de usuarios, bitácora y cola virtual.
+
+| Método | Ruta | Uso |
+|---|---|---|
+| GET | `/api/funciones` | Cartelera vigente con butacas disponibles |
+| GET | `/api/funciones/{codigo\|id}/asientos` | Butacas vendidas y retenidas |
+| POST | `/api/reservas` | `{funcion, usuario_id, asientos}` → retención de 5 min |
+| POST | `/api/reservas/{id}/pagar` | Pago idempotente → boletos y saldo |
+| DELETE | `/api/reservas/{id}` | Libera la retención |
+| POST | `/api/sesion` | `{correo, nombre}` → usuario y cuenta (bono de 120) |
+| GET | `/api/usuarios/{id}/cuenta` | Saldo, movimientos y boletos |
+| POST | `/api/creditos/trivia` | `{usuario_id, partida, aciertos}` → acreditación única por partida |
+| POST | `/api/boletos/{token}/validar` | Validación atómica en el acceso |
+| GET | `/api/metricas` | KPIs del panel de administración |
 
 ```bash
 curl localhost:8080/api/funciones
-curl -X POST localhost:8080/api/reservas -d '{"funcion_id":1,"usuario_id":1,"asientos":["C-4","C-5"]}'
+curl -X POST localhost:8080/api/reservas -d '{"funcion":"f5","usuario_id":1,"asientos":["C-04","C-05"]}'
 curl -X POST localhost:8080/api/reservas/<reserva_id>/pagar
-curl localhost:8080/api/funciones/1/asientos
-curl -X POST localhost:8080/api/cola/e1 -d '{"usuario_id":1}'
+curl localhost:8080/api/funciones/f5/asientos
 curl localhost:8080/api/metricas
 ```
 
-Pendiente para la siguiente iteración: conectar el frontend a la API, autenticación con JWT y bcrypt,
+Pendiente para la siguiente iteración: autenticación con JWT y bcrypt, usuarios y bitácora en la API,
 notificaciones por WebSocket/SSE, envío de correo SMTP y pruebas de carga (k6) para RNF-01 y RNF-43.

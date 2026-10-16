@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { FILAS, PARAMETROS, etiqueta, fmtDuracion, fmtFechaLarga, fmtHora, pelicula, sala, finFuncion } from "@/lib/data";
 import { useApp, type Boleto } from "@/lib/store";
 import { Poster } from "@/components/Poster";
@@ -19,20 +19,24 @@ export default function PaginaFuncion() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const app = useApp();
-  const { funciones, ocupacion, usuario, reserva, saldo, listo } = app;
+  const { funciones, ocupacion, cargarOcupacion, usuario, reserva, saldo, listo } = app;
   const f = funciones.find((x) => x.id === id);
   const [sel, setSel] = useState<string[]>([]);
   const [checkout, setCheckout] = useState(false);
   const [errorPago, setErrorPago] = useState("");
+  const [procesando, setProcesando] = useState(false);
   const [alerta, setAlerta] = useState<Alerta | null>(null);
   const [confirmarCancelar, setConfirmarCancelar] = useState(false);
   const [emitidos, setEmitidos] = useState<Boleto[] | null>(null);
-  const [ahora, setAhora] = useState(() => Date.now());
 
+  // Con la API: estado real de las butacas (vendidas en PostgreSQL + retenidas en Redis), refrescado cada 5 s.
+  const fid = f?.id;
   useEffect(() => {
-    const t = setInterval(() => setAhora(Date.now()), 500);
+    if (!fid) return;
+    cargarOcupacion([fid]);
+    const t = setInterval(() => cargarOcupacion([fid]), 5000);
     return () => clearInterval(t);
-  }, []);
+  }, [fid, cargarOcupacion]);
 
   if (!f)
     return (
@@ -46,7 +50,6 @@ export default function PaginaFuncion() {
   const occ = ocupacion(f.id);
   const PASILLOS = new Set(s.pasillos);
   const miReserva = reserva?.funcionId === f.id ? reserva : null;
-  const restante = miReserva ? Math.max(0, miReserva.expira - ahora) : 0;
   const asientosResumen = miReserva?.asientos ?? sel;
   const total = asientosResumen.length * f.precio;
   const sinTurno = listo && f.eventoId && !turnoVigente(f.eventoId) && !miReserva && !emitidos;
@@ -58,12 +61,15 @@ export default function PaginaFuncion() {
     setSel((x) => (x.includes(a) ? x.filter((y) => y !== a) : [...x, a]));
   };
 
-  const reservar = () => {
+  const reservar = async () => {
     if (!usuario) return app.abrirLogin();
-    const r = app.reservar(f.id, sel);
+    if (procesando) return;
+    setProcesando(true);
+    const r = await app.reservar(f.id, sel);
+    setProcesando(false);
     if (!r.ok) {
       setAlerta({ titulo: "No pudimos reservar", texto: r.error! });
-      if (r.error!.includes("Otro cliente") || r.error!.includes("ya no está")) setSel([]);
+      if (r.error!.includes("Otro cliente") || r.error!.includes("ya no está") || r.error!.includes("vendido")) setSel([]);
       return;
     }
     setSel([]);
@@ -76,11 +82,20 @@ export default function PaginaFuncion() {
     setErrorPago(r.ok ? "" : r.error!);
   };
 
-  const pagar = () => {
-    const r = app.pagar();
+  const pagar = async () => {
+    if (procesando) return;
+    setProcesando(true);
+    const r = await app.pagar();
+    setProcesando(false);
     if (!r.ok) return setErrorPago(r.error!);
     setCheckout(false);
     setEmitidos(r.boletos!);
+  };
+
+  // La trivia se abre encima de esta ventana: al volver, la reserva y las butacas siguen igual y el saldo ya está actualizado.
+  const jugarTrivia = () => {
+    setErrorPago("");
+    app.abrirTrivia();
   };
 
   const cancelar = () => {
@@ -92,7 +107,7 @@ export default function PaginaFuncion() {
   const resumenLateral = (
     <>
       {miReserva ? (
-        <Cuenta restante={restante} />
+        <Cuenta expira={miReserva.expira} />
       ) : (
         <div className="flex items-baseline justify-between rounded-md border border-borde bg-fondo px-3 py-2.5">
           <span className="etiqueta">Retención al reservar</span>
@@ -133,8 +148,8 @@ export default function PaginaFuncion() {
         </div>
       ) : (
         <div className="grid gap-2">
-          <button disabled={!sel.length || (!!reserva && !miReserva)} onClick={reservar} className="btn-vino w-full py-3.5">
-            ⎘ {usuario ? `Confirmar reserva (${total} cr.)` : "Inicia sesión para reservar"}
+          <button disabled={!sel.length || procesando || (!!reserva && !miReserva)} onClick={reservar} className="btn-vino w-full py-3.5">
+            ⎘ {!usuario ? "Inicia sesión para reservar" : procesando ? "Reservando…" : `Confirmar reserva (${total} cr.)`}
           </button>
           <button onClick={() => setSel([])} disabled={!sel.length} className="btn-borde w-full">
             Cancelar selección
@@ -169,7 +184,7 @@ export default function PaginaFuncion() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Poster p={p} className="hidden aspect-[2/3] w-14 sm:block" rounded="rounded-md" />
+          <Poster p={p} className="hidden aspect-[2/3] w-14 sm:block" rounded="rounded-md" sizes="56px" />
           <Link href={`/pelicula/${p.id}#horarios`} className="btn-borde">
             ▦ Cambiar función
           </Link>
@@ -247,7 +262,9 @@ export default function PaginaFuncion() {
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-borde bg-fondo/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden">
           <div className="mx-auto flex max-w-7xl items-center gap-3 px-4 py-2.5">
             {miReserva && (
-              <span className="rounded border border-rojo/60 bg-vino/50 px-2 py-1 text-sm font-black tabular-nums text-salmon">⏱ {mmss(restante)}</span>
+              <span className="rounded border border-rojo/60 bg-vino/50 px-2 py-1 text-sm font-black tabular-nums text-salmon">
+                ⏱ <Reloj expira={miReserva.expira} />
+              </span>
             )}
             <span className="min-w-0 flex-1 leading-tight">
               <span className="etiqueta block truncate">
@@ -260,7 +277,7 @@ export default function PaginaFuncion() {
                 Pagar
               </button>
             ) : (
-              <button disabled={!sel.length || (!!reserva && !miReserva)} onClick={reservar} className="btn-vino px-4">
+              <button disabled={!sel.length || procesando || (!!reserva && !miReserva)} onClick={reservar} className="btn-vino px-4">
                 {usuario ? "Reservar" : "Iniciar sesión"}
               </button>
             )}
@@ -272,9 +289,9 @@ export default function PaginaFuncion() {
       <Modal abierto={checkout && !!miReserva} onCerrar={() => setCheckout(false)} titulo="Finalizar compra" ancho="max-w-lg">
         {miReserva && (
           <div className="space-y-4">
-            <Cuenta restante={restante} />
+            <Cuenta expira={miReserva.expira} />
             <div className="flex gap-3 rounded-lg border border-borde bg-fondo p-3">
-              <Poster p={p} className="aspect-[2/3] w-14 shrink-0" rounded="rounded" />
+              <Poster p={p} className="aspect-[2/3] w-14 shrink-0" rounded="rounded" sizes="56px" />
               <div className="text-sm">
                 <p className="titulo">{p.titulo}</p>
                 <p className="text-tenue">
@@ -296,13 +313,12 @@ export default function PaginaFuncion() {
               <div className="rounded-md border border-rojo/60 bg-vino/50 p-3 text-sm text-salmon">
                 {errorPago}
                 {errorPago.startsWith("Saldo insuficiente") && (
-                  <p className="mt-1 text-xs text-salmon/80">
-                    Tu reserva sigue activa. Toca <b>◆ tus créditos</b> arriba o{" "}
-                    <Link href="/trivia" className="font-bold text-oro underline">
-                      juega la trivia
-                    </Link>{" "}
-                    para ganar hasta {PARAMETROS.bonoTriviaPerfecta} créditos.
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-salmon/80">
+                    <span>Tu reserva sigue activa. Gana hasta {PARAMETROS.bonoTriviaPerfecta} créditos sin salir de aquí:</span>
+                    <button onClick={jugarTrivia} className="btn-oro px-3 py-2 text-[10px]">
+                      🎬 Jugar la trivia
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -312,8 +328,8 @@ export default function PaginaFuncion() {
                 <p className="rounded-md border border-oro/30 bg-oro/10 p-2 text-xs text-oro">
                   {miReserva.creditosRetenidos} créditos retenidos. Confirma el pago antes de que termine el tiempo.
                 </p>
-                <button onClick={pagar} className="btn-vino w-full py-3.5">
-                  Pagar ◆ {total} créditos
+                <button onClick={pagar} disabled={procesando} className="btn-vino w-full py-3.5">
+                  {procesando ? "Procesando pago…" : `Pagar ◆ ${total} créditos`}
                 </button>
               </>
             ) : (
@@ -355,7 +371,7 @@ export default function PaginaFuncion() {
       {/* Compra exitosa */}
       <Modal abierto={!!emitidos} onCerrar={() => router.push("/mis-entradas")} ancho="max-w-xl">
         {emitidos && (
-          <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4">
+          <m.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4">
             <div className="text-center">
               <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-oro/60 bg-oro/15 text-2xl text-oro">✓</div>
               <h2 className="titulo mt-3 text-2xl">¡Compra exitosa!</h2>
@@ -372,7 +388,7 @@ export default function PaginaFuncion() {
                 Volver a cartelera
               </Link>
             </div>
-          </motion.div>
+          </m.div>
         )}
       </Modal>
     </div>
@@ -403,20 +419,21 @@ const ESTILO = {
   vendida: ["border-borde/60 bg-fondo text-apagado cursor-not-allowed", "✕", "Ocupado"],
 } as const;
 
+// Botón nativo: una sala tiene hasta 192 butacas y un componente animado por cada una cargaba el hilo principal.
+// El "toque" se resuelve con CSS (active:scale-90), que corre en el compositor.
 function Butaca({ a, estado, onClick }: { a: string; estado: keyof typeof ESTILO; onClick: () => void }) {
   const [cls, sym, txt] = ESTILO[estado];
   const ocupada = estado === "vendida" || estado === "bloqueada";
   return (
-    <motion.button
-      whileTap={ocupada ? undefined : { scale: 0.85 }}
+    <button
       disabled={ocupada}
       onClick={onClick}
       title={`${a} · ${txt}`}
-      aria-label={`Butaca ${a}, ${estado}`}
-      className={`butaca grid place-items-center rounded-[5px] border text-[9px] font-bold transition sm:text-[11px] ${cls}`}
+      aria-label={`Butaca ${a}, ${txt}`}
+      className={`butaca grid place-items-center rounded-[5px] border text-[9px] font-bold transition-[transform,background-color,border-color] duration-150 sm:text-[11px] ${ocupada ? "" : "active:scale-90"} ${cls}`}
     >
       {sym}
-    </motion.button>
+    </button>
   );
 }
 
@@ -434,7 +451,22 @@ function Leyenda() {
   );
 }
 
-function Cuenta({ restante }: { restante: number }) {
+// Los relojes se actualizan solos: antes un setInterval de 500 ms en la página volvía a pintar el mapa completo.
+function useRestante(expira: number) {
+  const [ahora, setAhora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAhora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return Math.max(0, expira - ahora);
+}
+
+function Reloj({ expira }: { expira: number }) {
+  return <>{mmss(useRestante(expira))}</>;
+}
+
+function Cuenta({ expira }: { expira: number }) {
+  const restante = useRestante(expira);
   const pct = restante / (PARAMETROS.retencionMinutos * 60000);
   return (
     <div className="rounded-md border border-rojo/50 bg-vino/40 p-3">
@@ -443,7 +475,7 @@ function Cuenta({ restante }: { restante: number }) {
         <span className={`text-2xl font-black tabular-nums ${pct < 0.2 ? "text-salmon" : "text-tinta"}`}>{mmss(restante)}</span>
       </div>
       <div className="mt-2 h-1 overflow-hidden rounded-full bg-fondo">
-        <div className="h-full bg-rojo transition-all" style={{ width: `${pct * 100}%` }} />
+        <div className="h-full origin-left bg-rojo transition-transform duration-1000 ease-linear" style={{ transform: `scaleX(${pct})` }} />
       </div>
     </div>
   );

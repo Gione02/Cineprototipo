@@ -24,7 +24,7 @@ export function Logo({ href = "/" }: { href?: string }) {
 }
 
 export function Header() {
-  const { usuario, saldo, logout, listo, abrirLogin } = useApp();
+  const { usuario, saldo, logout, listo, abrirLogin, abrirTrivia } = useApp();
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
   const staff = usuario && usuario.rol !== "cliente";
@@ -61,8 +61,9 @@ export function Header() {
 
         <div className="ml-auto flex items-center gap-2 sm:gap-3">
           {listo && usuario?.rol === "cliente" && (
-            <Link
-              href="/trivia"
+            <button
+              type="button"
+              onClick={abrirTrivia}
               title="Gana más créditos jugando la trivia"
               aria-label={`${saldo} créditos. Abrir la trivia para ganar más`}
               className="relative flex items-center gap-2 rounded-md border border-borde bg-panel px-3 py-1.5 transition hover:border-oro"
@@ -74,7 +75,7 @@ export function Header() {
               <span className="grid h-5 w-5 place-items-center rounded-full border border-oro/70 text-[10px] font-black text-oro">◆</span>
               <span className="text-sm font-bold tabular-nums">{saldo.toLocaleString("es-GT")}</span>
               <span className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-tenue sm:inline">créditos</span>
-            </Link>
+            </button>
           )}
           {listo && usuario ? (
             <div className="hidden items-center gap-2 sm:flex">

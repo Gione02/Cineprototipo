@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { CLAVE_DEMO, PARAMETROS, ROL_TXT, USUARIOS_DEMO, type Rol } from "@/lib/data";
 import { useApp } from "@/lib/store";
 import { Modal } from "./Modal";
@@ -190,7 +190,7 @@ function VerificacionHumana({ verificado, onVerificado }: { verificado: boolean;
         </label>
       )}
       {paso === "reto" && (
-        <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
+        <m.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
           <p className="etiqueta mb-2 text-tinta">Desliza el boleto hasta encajarlo en el hueco</p>
           <div className="relative h-11 overflow-hidden rounded-md border border-borde bg-panel-2">
             {/* Hueco objetivo */}
@@ -212,7 +212,7 @@ function VerificacionHumana({ verificado, onVerificado }: { verificado: boolean;
             />
           </div>
           <p className="mt-1.5 text-[11px] text-tenue">{mensaje || "Arrastra y suelta. Con teclado: flechas y Enter."}</p>
-        </motion.div>
+        </m.div>
       )}
       {paso === "listo" && (
         <p className="flex items-center gap-2 text-sm font-semibold text-oro">
