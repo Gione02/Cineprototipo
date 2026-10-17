@@ -21,31 +21,102 @@ cineight/
 | Caché / candados | Redis 8 | Implementado en Docker (retención de 5 min con TTL, cola, rate limiting) |
 | Infraestructura local | Docker Compose | PostgreSQL + Redis + API |
 
-**Pendiente:** el frontend todavía no consume la API en Go (usa datos simulados), y el despliegue en la nube
-(Vercel, Render/Railway, Supabase, Upstash) no está configurado.
+**Pendiente:** autenticación real (JWT + bcrypt) y despliegue en la nube (Vercel, Render/Railway, Supabase, Upstash).
 
-## Ejecutar
+## Cómo abrirlo en tu computadora
 
-**Frontend** (funciona solo, con datos simulados en el navegador):
+### 1. Requisitos
+
+| Programa | Versión | Para qué | Descarga |
+|---|---|---|---|
+| Git | cualquiera | Descargar el proyecto | https://git-scm.com/downloads |
+| Node.js | 20 o superior (LTS) | Frontend | https://nodejs.org |
+| Docker Desktop | reciente | API en Go, PostgreSQL y Redis | https://www.docker.com/products/docker-desktop |
+
+Docker es opcional: sin él, el frontend funciona en **modo demostración** con datos simulados en el navegador.
+No hace falta instalar Go, PostgreSQL ni Redis: Docker los ejecuta.
+
+### 2. Descargar el proyecto
+
+```bash
+git clone https://github.com/Gione02/Cineprototipo.git
+cd Cineprototipo
+```
+
+¿Ya lo tenías descargado? Actualízalo con `git pull`.
+
+### 3. Levantar el backend (API + base de datos + Redis)
+
+Abre Docker Desktop y espera a que diga *Engine running*. Luego, en la carpeta del proyecto:
+
+```bash
+docker compose up -d --build
+```
+
+La primera vez tarda unos minutos. Comprueba que funciona abriendo http://localhost:8080/api/salud (debe responder).
+
+> Si ya lo habías levantado con una versión anterior, reinicia la base de datos para cargar los datos nuevos:
+> `docker compose down -v` y luego `docker compose up -d --build`.
+
+### 4. Levantar el frontend
 
 ```bash
 cd frontend
 npm install
-npm run dev        # http://localhost:3000
 ```
 
-**Backend + base de datos + Redis** (requiere Docker):
+Crea el archivo de configuración copiando el de ejemplo:
 
 ```bash
-docker compose down -v          # sólo la primera vez tras actualizar: db/init.sql cambió
-docker compose up -d --build    # API en http://localhost:8080
+cp .env.example .env.local          # macOS / Linux / Git Bash
+copy .env.example .env.local        # Windows (CMD o PowerShell)
 ```
 
-**Conectar el frontend a la API:** `frontend/.env.local` (copia de `.env.example`) define
-`NEXT_PUBLIC_API_URL=http://localhost:8080`. Reinicia `npm run dev` tras crearlo o cambiarlo.
-El pie de página muestra el modo: **API conectada** (datos de PostgreSQL/Redis) o **Modo demostración**
-(si la API no responde, todo sigue funcionando con la simulación en el navegador).
-CORS acepta los orígenes de `CORS_ORIGINS` (por defecto `http://localhost:3000,http://127.0.0.1:3000`).
+Y arranca la aplicación:
+
+```bash
+npm run dev
+```
+
+Abre **http://localhost:3000**. El pie de página indica el modo:
+
+- **API conectada:** los datos vienen de PostgreSQL y Redis.
+- **Modo demostración:** la API no responde; todo funciona igual con datos simulados en el navegador.
+
+### 5. Detener todo
+
+- Frontend: `Ctrl + C` en la terminal donde corre `npm run dev`.
+- Backend: `docker compose down` (añade `-v` para borrar también la base de datos).
+
+### Problemas comunes
+
+| Síntoma | Solución |
+|---|---|
+| El pie dice *Modo demostración* | Verifica que Docker Desktop esté abierto y que `docker compose ps` muestre `api`, `postgres` y `redis` en ejecución. Revisa que exista `frontend/.env.local` y reinicia `npm run dev`. |
+| `port is already allocated` (5432, 6379 u 8080) | Otro programa usa ese puerto (por ejemplo un PostgreSQL instalado). Detenlo o cambia el puerto izquierdo en `docker-compose.yml`. |
+| `port 3000 is in use` | Next.js usará el 3001; en ese caso agrega `http://localhost:3001` a `CORS_ORIGINS` en `docker-compose.yml` y vuelve a ejecutar `docker compose up -d`. |
+| `npm` o `node` no se reconoce | Instala Node.js y abre una terminal nueva. |
+| Faltan datos o hay errores tras actualizar | `docker compose down -v` y `docker compose up -d --build`. |
+
+### Accesos de demostración
+
+En **Iniciar sesión** hay botones para entrar como *Cliente*, *Agente Operativo*, *Administrador* o *Auditor*.
+La contraseña para reconfirmar acciones de administrador es `cineight123`.
+
+### Versión de producción (opcional)
+
+Para medir rendimiento con Lighthouse usa la compilación de producción en una ventana de incógnito:
+
+```bash
+cd frontend
+npm run build
+npm start          # http://localhost:3000
+```
+
+### Configuración
+
+- `NEXT_PUBLIC_API_URL` (en `frontend/.env.local`): URL de la API. Si se omite, el frontend usa sólo el modo demostración.
+- `CORS_ORIGINS` (en `docker-compose.yml`): orígenes que pueden llamar a la API. Por defecto `http://localhost:3000,http://127.0.0.1:3000`.
 
 ## Recorrido sugerido
 
