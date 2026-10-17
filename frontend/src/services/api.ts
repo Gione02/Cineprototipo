@@ -1,0 +1,104 @@
+// Cliente HTTP de la API en Go (backend/cmd/api). La URL base sale de NEXT_PUBLIC_API_URL.
+// Si la variable no está definida, o la API no responde al arrancar, el prototipo sigue
+// funcionando con los datos simulados del navegador (ver `modoApi` en el store).
+
+import type {
+  AsientosApi,
+  CaptchaApi,
+  CuentaApi,
+  FuncionApi,
+  NuevaFuncionApi,
+  PeliculaApi,
+  MetricasApi,
+  PagoApi,
+  ReservaApi,
+  SesionApi,
+  TriviaApi,
+  ValidacionApi,
+} from "@/types/api";
+
+const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
+
+export const apiConfigurada = BASE !== "";
+
+/** Error de la API con su código HTTP (0 = sin conexión o tiempo agotado). */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public datos?: unknown,
+  ) {
+    super(message);
+  }
+}
+
+async function pedir<T>(ruta: string, init: RequestInit = {}, timeoutMs = 8000): Promise<T> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(BASE + ruta, {
+      ...init,
+      signal: ctrl.signal,
+      cache: "no-store",
+      headers: init.body ? { "Content-Type": "application/json", ...init.headers } : init.headers,
+    });
+    const datos = await res.json().catch(() => ({}));
+    if (!res.ok) throw new ApiError(res.status, (datos as { error?: string; motivo?: string }).error ?? `Error ${res.status}`, datos);
+    return datos as T;
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(0, ctrl.signal.aborted ? "La API no respondió a tiempo." : "No se pudo conectar con la API.");
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+const post = <T>(ruta: string, cuerpo?: unknown) => pedir<T>(ruta, { method: "POST", body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+const del = <T>(ruta: string, cuerpo?: unknown) => pedir<T>(ruta, { method: "DELETE", body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+const seg = encodeURIComponent;
+
+export const api = {
+  salud: () => pedir<{ estado: string }>("/api/salud", {}, 2500),
+
+  // Catálogo y mapa de butacas
+  funciones: () => pedir<FuncionApi[]>("/api/funciones"),
+  asientos: (funcion: string, usuarioId?: number) => pedir<AsientosApi>(`/api/funciones/${seg(funcion)}/asientos${usuarioId ? `?usuario=${usuarioId}` : ""}`),
+  /** Ocupación de todas las funciones vigentes en una sola respuesta (panel, listados grandes). */
+  ocupacion: () => pedir<Record<string, AsientosApi>>("/api/ocupacion"),
+  /** Candado individual de una butaca (SET NX EX en Redis) mientras el cliente arma su selección. */
+  bloquearAsiento: (funcion: string, asiento: string, usuarioId: number) =>
+    post<{ asiento: string; estado: string }>(`/api/funciones/${seg(funcion)}/asientos/${seg(asiento)}/bloqueo`, { usuario_id: usuarioId }),
+  /** Suelta butacas bloqueadas por el usuario (sólo las que siguen a su nombre). */
+  // keepalive: la solicitud se completa aunque el usuario cierre la pestaña o cambie de página.
+  desbloquearAsientos: (funcion: string, asientos: string[], usuarioId: number) =>
+    pedir<{ estado: string }>(`/api/funciones/${seg(funcion)}/bloqueos`, { method: "DELETE", keepalive: true, body: JSON.stringify({ usuario_id: usuarioId, asientos }) }),
+  /** URL del stream SSE con los cambios de butacas de una función. */
+  urlStream: (funcion: string) => `${BASE}/api/funciones/${seg(funcion)}/stream`,
+
+  // Catálogo editable (agente operativo y administrador)
+  peliculas: () => pedir<PeliculaApi[]>("/api/peliculas"),
+  /** Crea la película con su póster (data URL) y sus funciones en una sola transacción. */
+  crearPelicula: (datos: Omit<PeliculaApi, "slug" | "poster_url"> & { poster: string; funciones: NuevaFuncionApi[]; creada_por: string }) =>
+    pedir<{ slug: string; funciones: string[] }>("/api/peliculas", { method: "POST", body: JSON.stringify(datos) }, 20000),
+  programarFuncion: (pelicula: string, f: NuevaFuncionApi) => post<{ codigo: string }>("/api/funciones", { pelicula, ...f }),
+  /** URL absoluta de un recurso de la API (p. ej. el póster de una película creada desde el panel). */
+  url: (ruta: string) => BASE + ruta,
+
+  // Compra
+  crearReserva: (funcion: string, usuarioId: number, asientos: string[]) => post<ReservaApi>("/api/reservas", { funcion, usuario_id: usuarioId, asientos }),
+  pagar: (reservaId: string) => post<PagoApi>(`/api/reservas/${seg(reservaId)}/pagar`),
+  cancelarReserva: (reservaId: string) => del<{ estado: string }>(`/api/reservas/${seg(reservaId)}`),
+
+  // Cuentas y créditos
+  sesion: (correo: string, nombre: string) => post<SesionApi>("/api/sesion", { correo, nombre }),
+  cuenta: (usuarioId: number) => pedir<CuentaApi>(`/api/usuarios/${usuarioId}/cuenta`),
+  acreditarTrivia: (usuarioId: number, partida: string, aciertos: number) => post<TriviaApi>("/api/creditos/trivia", { usuario_id: usuarioId, partida, aciertos }),
+
+  // Operación
+  validarBoleto: (token: string) => post<ValidacionApi>(`/api/boletos/${seg(token)}/validar`),
+  metricas: () => pedir<MetricasApi>("/api/metricas"),
+
+  // Seguridad
+  /** Verifica en el servidor un token de reCAPTCHA v3 antes de procesar credenciales. */
+  verificarCaptcha: (token: string, accion: string) => post<CaptchaApi>("/api/captcha/verificar", { token, accion }),
+};

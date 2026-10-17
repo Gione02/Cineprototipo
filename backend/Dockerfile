@@ -1,8 +1,9 @@
 FROM golang:1.26-alpine AS build
 WORKDIR /src
-COPY go.mod ./
+COPY go.mod go.sum* ./
+RUN go mod download
 COPY . .
-RUN go mod tidy && CGO_ENABLED=0 go build -o /cineight-api .
+RUN go mod tidy && CGO_ENABLED=0 go build -o /cineight-api ./cmd/api
 
 FROM alpine:3.22
 COPY --from=build /cineight-api /cineight-api

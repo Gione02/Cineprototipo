@@ -31,6 +31,14 @@
 
 :root {
   color-scheme: dark;
+  /* Alto del encabezado fijo: el panel de administración lo descuenta para ocupar el resto de la pantalla */
+  --alto-header: 4rem;
+}
+
+html,
+body {
+  /* Las portadas a sangre (ancho completo) usan 100vw, que incluye la barra de scroll: se recorta sin crear otro scroll */
+  overflow-x: clip;
 }
 
 body {
@@ -52,13 +60,16 @@ body {
     @apply rounded-xl border border-borde bg-panel;
   }
   .btn-vino {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-rojo/60 bg-vino px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-salmon transition hover:bg-vino-2 hover:text-white disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex min-w-0 max-w-full items-center justify-center gap-2 text-center leading-tight rounded-md border border-rojo/60 bg-vino px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-salmon transition-colors hover:bg-vino-2 hover:text-white disabled:cursor-not-allowed disabled:opacity-40;
   }
   .btn-borde {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md border border-borde bg-panel-2 px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-tinta transition hover:border-arena hover:text-white disabled:opacity-40;
+    @apply inline-flex min-w-0 max-w-full items-center justify-center gap-2 text-center leading-tight rounded-md border border-borde bg-panel-2 px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-tinta transition-colors hover:border-arena hover:text-white disabled:cursor-not-allowed disabled:opacity-40;
+  }
+  .btn-fantasma {
+    @apply inline-flex min-w-0 max-w-full items-center justify-center gap-2 text-center leading-tight rounded-md px-4 py-3 text-xs font-bold uppercase tracking-[0.12em] text-tenue transition-colors hover:bg-panel-2 hover:text-white disabled:opacity-40;
   }
   .btn-oro {
-    @apply inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md bg-oro px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-fondo transition hover:bg-oro-2;
+    @apply inline-flex min-w-0 max-w-full items-center justify-center gap-2 text-center leading-tight rounded-md bg-oro px-5 py-3 text-xs font-bold uppercase tracking-[0.12em] text-fondo transition-colors hover:bg-oro-2 disabled:opacity-40;
   }
   .badge-vino {
     @apply whitespace-nowrap rounded border border-rojo/50 bg-vino px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-salmon;
@@ -90,4 +101,22 @@ body {
 }
 .pasillo {
   width: clamp(6px, 2vw, 18px);
+}
+
+/* Sección a sangre: ocupa todo el ancho de la ventana aunque esté dentro del contenedor centrado */
+.a-sangre {
+  margin-inline: calc(50% - 50vw);
+}
+
+/* Carruseles: se desplazan con gestos o flechas, sin barra visible */
+.sin-scrollbar {
+  scrollbar-width: none;
+}
+.sin-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* reCAPTCHA v3: la insignia flotante se oculta y el aviso legal se muestra junto al formulario (permitido por Google) */
+.grecaptcha-badge {
+  visibility: hidden;
 }

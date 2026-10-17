@@ -12,7 +12,10 @@ const nextConfig: NextConfig = {
   images: {
     formats: ["image/avif", "image/webp"],
     qualities: [60, 75], // obligatorio desde Next 16: sólo estas calidades se pueden pedir
-    localPatterns: [{ pathname: "/posters/**", search: "" }],
+    localPatterns: [
+      { pathname: "/posters/**", search: "" },
+      { pathname: "/logo-cineight.png", search: "" },
+    ],
     minimumCacheTTL: 2678400, // 31 días: los pósters no cambian
   },
   turbopack: {

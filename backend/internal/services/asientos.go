@@ -1,0 +1,138 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/cineight/backend/internal/domain"
+	"github.com/redis/go-redis/v9"
+)
+
+// Asientos gestiona el mapa de butacas en tiempo real: candados individuales (SET NX EX)
+// y la difusión de cada cambio a los clientes conectados por SSE.
+type Asientos struct {
+	catalogo  Catalogo
+	candados  Candados
+	retencion time.Duration
+}
+
+// NuevoAsientos crea el servicio.
+func NuevoAsientos(c Catalogo, k Candados, retencion time.Duration) *Asientos {
+	return &Asientos{catalogo: c, candados: k, retencion: retencion}
+}
+
+// Resolver convierte el código público o el id de una función en su id numérico.
+func (s *Asientos) Resolver(ctx context.Context, ref string) (int, error) {
+	id, err := s.catalogo.FuncionID(ctx, ref)
+	if err != nil {
+		return 0, domain.NoEncontrado("La función no existe.")
+	}
+	return id, nil
+}
+
+// Ocupacion combina las butacas vendidas (PostgreSQL) y las retenidas o bloqueadas (claves vivas en Redis).
+func (s *Asientos) Ocupacion(ctx context.Context, funcionID int) (domain.Ocupacion, error) {
+	vendidos, err := s.catalogo.AsientosVendidos(ctx, funcionID)
+	if err != nil {
+		return domain.Ocupacion{}, err
+	}
+	return domain.Ocupacion{Vendidos: vendidos, Retenidos: s.candados.Retenidos(ctx, funcionID)}, nil
+}
+
+// BloqueosDe lista las butacas que el usuario tiene bloqueadas en la función.
+func (s *Asientos) BloqueosDe(ctx context.Context, funcionID int, usuarioID int64) []string {
+	return s.candados.BloqueosDe(ctx, funcionID, usuarioID)
+}
+
+// OcupacionVigente devuelve la ocupación de todas las funciones vigentes, indexada por código público.
+func (s *Asientos) OcupacionVigente(ctx context.Context) (map[string]domain.Ocupacion, error) {
+	codigos, vendidos, err := s.catalogo.VendidosVigentes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	retenidos := s.candados.RetenidosPorFuncion(ctx)
+	out := make(map[string]domain.Ocupacion, len(codigos))
+	for id, codigo := range codigos {
+		o := domain.Ocupacion{Vendidos: vendidos[id], Retenidos: retenidos[id]}
+		if o.Retenidos == nil {
+			o.Retenidos = []string{}
+		}
+		out[codigo] = o
+	}
+	return out, nil
+}
+
+// Bloquear toma una butaca para el usuario durante la retención. Si el usuario ya la tenía, renueva el TTL.
+func (s *Asientos) Bloquear(ctx context.Context, ref, asiento string, usuarioID int64) error {
+	if usuarioID == 0 || !domain.FormatoAsiento.MatchString(asiento) {
+		return domain.Invalido("Butaca o usuario inválidos.")
+	}
+	fid, err := s.Resolver(ctx, ref)
+	if err != nil {
+		return err
+	}
+	if _, vendidos, _, err := s.catalogo.ContextoReserva(ctx, fid, []string{asiento}, usuarioID); err != nil {
+		return domain.NoEncontrado("La función no existe.")
+	} else if vendidos > 0 {
+		return domain.Conflicto("La butaca " + asiento + " ya fue vendida.")
+	}
+
+	switch r, err := s.candados.Bloquear(ctx, fid, asiento, usuarioID, s.retencion, domain.MaxAsientosPorCompra); {
+	case err != nil:
+		return err
+	case r == 0:
+		return domain.Conflicto("La butaca " + asiento + " acaba de ser tomada por otro cliente.")
+	case r < 0:
+		return domain.Conflicto(fmt.Sprintf("Puedes bloquear hasta %d butacas a la vez.", domain.MaxAsientosPorCompra))
+	case r == 2:
+		return nil // renovación de un bloqueo propio: los demás clientes ya la ven bloqueada
+	}
+	s.publicar(ctx, fid, ref, domain.AsientoBloqueado, []string{asiento})
+	return nil
+}
+
+// Desbloquear suelta butacas del usuario (sólo las que siguen a su nombre).
+func (s *Asientos) Desbloquear(ctx context.Context, ref string, asientos []string, usuarioID int64) error {
+	if usuarioID == 0 || len(asientos) == 0 || len(asientos) > domain.MaxAsientosPorCompra {
+		return domain.Invalido("Solicitud inválida.")
+	}
+	fid, err := s.Resolver(ctx, ref)
+	if err != nil {
+		return err
+	}
+	liberadas, err := s.candados.LiberarBloqueos(ctx, fid, asientos, usuarioID)
+	if err != nil {
+		return err
+	}
+	s.publicar(ctx, fid, ref, domain.AsientoLiberado, liberadas)
+	return nil
+}
+
+// Suscribir abre el canal de cambios de una función.
+func (s *Asientos) Suscribir(ctx context.Context, funcionID int) (*redis.PubSub, error) {
+	return s.candados.Suscribir(ctx, funcionID)
+}
+
+// publicar difunde un cambio; ref puede ser el id numérico o el código, se normaliza al código público.
+func (s *Asientos) publicar(ctx context.Context, fid int, ref string, tipo domain.TipoEventoAsiento, asientos []string) {
+	if len(asientos) == 0 {
+		return
+	}
+	codigo := ref
+	if c, err := s.catalogo.CodigoFuncion(ctx, fid); err == nil {
+		codigo = c
+	}
+	if err := s.candados.Publicar(ctx, fid, domain.EventoAsientos{Tipo: tipo, Funcion: codigo, Asientos: asientos}); err != nil {
+		log.Printf("tiempo real: no se pudo publicar %s en la función %d: %v", tipo, fid, err)
+	}
+}
+
+// EscucharExpiraciones convierte los vencimientos de Redis (TTL de bloqueos y reservas) en eventos "liberado".
+// Corre hasta que ctx se cancela.
+func (s *Asientos) EscucharExpiraciones(ctx context.Context) {
+	s.candados.Expiraciones(ctx, func(fid int, asiento string) {
+		s.publicar(ctx, fid, "", domain.AsientoLiberado, []string{asiento})
+	})
+}

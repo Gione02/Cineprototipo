@@ -1,12 +1,11 @@
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import "./globals.css";
-import { AppProvider } from "@/lib/store";
-import { Header } from "@/components/Header";
-import { AvisoTrivia } from "@/components/AvisoTrivia";
-import { GuardiaRol } from "@/components/GuardiaRol";
-import { Ventanas } from "@/components/Ventanas";
-import { EstadoApi } from "@/components/EstadoApi";
+import { AppProvider } from "@/store/AppProvider";
+import { Header } from "@/components/layout/Header";
+import { GuardiaRol } from "@/components/layout/GuardiaRol";
+import { Ventanas } from "@/components/layout/Ventanas";
+import { AvisoTrivia } from "@/components/trivia/AvisoTrivia";
 
 const montserrat = Montserrat({ variable: "--font-montserrat", subsets: ["latin"], weight: ["400", "500", "600", "700", "800", "900"] });
 
@@ -15,6 +14,8 @@ export const metadata: Metadata = {
   description: "Prototipo de la plataforma de boletería Cineight (ERS v1.4)",
 };
 
+// Esqueleto común: estado global, encabezado y ventanas emergentes.
+// Cada sección define su propio contenedor: (sitio)/layout.tsx para el público y panel/layout.tsx para el personal.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     // suppressHydrationWarning: extensiones del navegador (p. ej. Scribe) agregan atributos a <html> antes de hidratar.
@@ -22,19 +23,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col font-sans">
         <AppProvider>
           <Header />
-          <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
-            <GuardiaRol>{children}</GuardiaRol>
-          </main>
-          <footer className="border-t border-borde">
-            <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-6 text-[10px] uppercase tracking-[0.16em] text-apagado sm:px-6">
-              <span>
-                <b className="text-sm tracking-tight text-tinta">CINEIGHT</b> <span className="ml-2 text-oro">Cine en línea</span>
-              </span>
-              <span>Prototipo académico · Análisis de Sistemas II · UMG</span>
-              <EstadoApi />
-              <span>Pósters: Wikipedia (uso académico) · Tráileres: YouTube</span>
-            </div>
-          </footer>
+          <GuardiaRol>{children}</GuardiaRol>
           <AvisoTrivia />
           <Ventanas />
         </AppProvider>
