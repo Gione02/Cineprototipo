@@ -22,6 +22,7 @@ import { boletoDeApi, funcionDeApi, movimientoDeApi, peliculaDeApi } from "@/ser
 import type { AsientosApi, CuentaApi, EventoAsientosApi } from "@/types/api";
 import { CLAVE_DEMO, PELICULAS, USUARIOS_DEMO, funcionesBase, ocupacionSimulada, registrarPeliculas } from "@/data/catalogo";
 import { funcionQueChoca } from "@/utils/programacion";
+import { normalizarCorreo, normalizarNombre, validarClaveNueva, validarCorreo, validarNombre } from "@/utils/validacion";
 import { PARAMETROS } from "@/data/parametros";
 import type { Funcion, NuevaFuncion, NuevaPelicula, Pelicula, Rol } from "@/types/catalogo";
 import type { Boleto, Cuenta, Log, ModoApi, Movimiento, Reserva, Resultado, Usuario, Validacion } from "@/types/cuenta";
@@ -136,7 +137,6 @@ function conDemos(cuentas: Record<string, Cuenta>): Record<string, Cuenta> {
   return out;
 }
 
-const correoValido = (c: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c);
 const adminsActivos = (c: Record<string, Cuenta>) => Object.values(c).filter((x) => x.rol === "admin" && x.activo).length;
 
 function log(s: Estado, accion: string, detalle: string): Log[] {
@@ -546,9 +546,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return { ok: true };
     },
     registrarCliente: (nombre, correo, clave) => {
-      const c = correo.trim().toLowerCase();
+      // Mismas reglas que el formulario (defensa en profundidad): nombre real, correo válido y contraseña segura.
+      const c = normalizarCorreo(correo);
+      const invalido = validarNombre(nombre) ?? validarCorreo(c) ?? validarClaveNueva(clave, c);
+      if (invalido) return { ok: false, error: invalido };
       if (ref.current.cuentas[c]) return { ok: false, error: "El correo ya está registrado." };
-      const u = { nombre: nombre.trim(), correo: c, rol: "cliente" as Rol };
+      const u = { nombre: normalizarNombre(nombre), correo: c, rol: "cliente" as Rol };
       setE((s) => ({ ...s, usuario: u, cuentas: { ...s.cuentas, [c]: cuentaNueva(u.nombre, c, "cliente", clave) }, bitacora: log({ ...s, usuario: u }, "CUENTA_CREADA", "Registro de cliente") }));
       return { ok: true };
     },
@@ -568,12 +571,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     crearUsuario: ({ nombre, correo, rol, clave }) => {
       const s = ref.current;
       if (s.usuario?.rol !== "admin" || adminHasta < Date.now()) return { ok: false, error: "Acción no autorizada: reconfirma tu identidad de administrador." };
-      const c = correo.trim().toLowerCase();
-      if (nombre.trim().length < 2) return { ok: false, error: "Ingresa el nombre completo." };
-      if (!correoValido(c)) return { ok: false, error: "Correo electrónico inválido." };
+      const c = normalizarCorreo(correo);
+      const invalido = validarNombre(nombre) ?? validarCorreo(c);
+      if (invalido) return { ok: false, error: invalido };
       if (s.cuentas[c]) return { ok: false, error: "Ya existe una cuenta con ese correo." };
-      if (clave.length < 8) return { ok: false, error: "La contraseña temporal debe tener al menos 8 caracteres." };
-      setE((st) => ({ ...st, cuentas: { ...st.cuentas, [c]: cuentaNueva(nombre.trim(), c, rol, clave) }, bitacora: log(st, "USUARIO_CREADO", `${c} · rol ${rol}`) }));
+      const claveInvalida = validarClaveNueva(clave, c);
+      if (claveInvalida) return { ok: false, error: claveInvalida.replace("La contraseña", "La contraseña temporal") };
+      setE((st) => ({ ...st, cuentas: { ...st.cuentas, [c]: cuentaNueva(normalizarNombre(nombre), c, rol, clave) }, bitacora: log(st, "USUARIO_CREADO", `${c} · rol ${rol}`) }));
       return { ok: true };
     },
     editarUsuario: (correo, { nombre, rol }) => {
@@ -581,7 +585,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (s.usuario?.rol !== "admin" || adminHasta < Date.now()) return { ok: false, error: "Acción no autorizada: reconfirma tu identidad de administrador." };
       const c = s.cuentas[correo];
       if (!c) return { ok: false, error: "La cuenta no existe." };
-      if (nombre.trim().length < 2) return { ok: false, error: "Ingresa el nombre completo." };
+      const nombreInvalido = validarNombre(nombre);
+      if (nombreInvalido) return { ok: false, error: nombreInvalido };
+      nombre = normalizarNombre(nombre);
       if (correo === s.usuario.correo && rol !== c.rol) return { ok: false, error: "No puedes cambiar tu propio rol." };
       if (c.rol === "admin" && rol !== "admin" && c.activo && adminsActivos(s.cuentas) <= 1) return { ok: false, error: "Debe existir al menos un administrador activo." };
       setE((st) => ({

@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/cineight/backend/internal/domain"
 )
@@ -23,12 +22,13 @@ func NuevoCuentas(c Cuentas, v Ventas, a Auditoria) *CuentasClientes {
 // Sesion vincula al cliente que inició sesión en el frontend con su cuenta en PostgreSQL
 // (la crea con el bono de bienvenida). Pendiente: autenticación real con JWT + bcrypt.
 func (s *CuentasClientes) Sesion(ctx context.Context, correo, nombre string) (int64, int, error) {
-	correo = strings.ToLower(strings.TrimSpace(correo))
-	if !strings.Contains(correo, "@") {
-		return 0, 0, domain.Invalido("correo requerido")
+	correo = domain.NormalizarCorreo(correo)
+	if err := domain.ValidarCorreo(correo); err != nil {
+		return 0, 0, err
 	}
-	if nombre == "" {
-		nombre = strings.Split(correo, "@")[0]
+	nombre = domain.NormalizarNombre(nombre)
+	if err := domain.ValidarNombre(nombre); err != nil {
+		return 0, 0, err
 	}
 	return s.cuentas.VincularCliente(ctx, correo, nombre)
 }
