@@ -14,7 +14,7 @@ type Enlace = { href: string; txt: string; icono: LucideIcon };
 
 /** Barra de navegación superior fija (alto = --alto-header). */
 export function Header() {
-  const { usuario, saldo, listo, abrirLogin, abrirTrivia } = useApp();
+  const { usuario, saldo, saldoListo, listo, abrirLogin, abrirTrivia } = useApp();
   const ruta = usePathname();
   const [abierto, setAbierto] = useState(false);
   const staff = !!usuario && usuario.rol !== "cliente";
@@ -58,7 +58,6 @@ export function Header() {
               whileHover={{ y: -1 }}
               whileTap={{ scale: 0.96 }}
               title="Gana más créditos jugando la trivia"
-              aria-label={`${saldo} créditos. Abrir la trivia para ganar más`}
               className="relative flex items-center gap-2 rounded-md border border-borde bg-panel px-2.5 py-1.5 transition-colors hover:border-oro sm:px-3"
             >
               <span className="absolute -right-1 -top-1 flex h-2.5 w-2.5">
@@ -66,8 +65,17 @@ export function Header() {
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-oro" />
               </span>
               <Gem aria-hidden className="h-4 w-4 text-oro" />
-              <span className="text-sm font-bold tabular-nums">{saldo.toLocaleString("es-GT")}</span>
+              {saldoListo ? (
+                <span className="text-sm font-bold tabular-nums">{saldo.toLocaleString("es-GT")}</span>
+              ) : (
+                <>
+                  <span aria-hidden className="inline-block h-4 w-6 animate-pulse rounded bg-panel-2" />
+                  <span className="sr-only">Cargando saldo</span>
+                </>
+              )}{" "}
               <span className="hidden text-[10px] font-semibold uppercase tracking-[0.14em] text-tenue sm:inline">créditos</span>
+              <span className="sr-only sm:hidden">créditos</span>
+              <span className="sr-only">. Abrir la trivia para ganar más</span>
             </m.button>
           )}
           {listo && usuario ? (

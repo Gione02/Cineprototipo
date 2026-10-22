@@ -35,6 +35,8 @@ type Ctx = {
   modoApi: ModoApi;
   usuario: Usuario | null;
   saldo: number;
+  // false mientras la cuenta del cliente se carga desde la API: la interfaz no debe mostrar "0 créditos" provisional.
+  saldoListo: boolean;
   movimientos: Movimiento[];
   boletos: Boleto[];
   cuentas: Record<string, Cuenta>;
@@ -414,6 +416,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     listo,
     modoApi,
     usuario: e.usuario,
+    // Mientras la cuenta del cliente se carga no se muestra un "0 créditos" provisional (heurística 1 de Nielsen).
+    saldoListo: e.usuario?.rol !== "cliente" || cuentaCliente !== null,
     saldo: cuentaCliente?.saldo ?? 0,
     movimientos: cuentaCliente?.movimientos.map(movimientoDeApi) ?? [],
     boletos: sinDuplicados(cuentaCliente?.boletos.map((b) => boletoDeApi(b, e.usuario!.correo)) ?? []),

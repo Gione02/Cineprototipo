@@ -148,7 +148,7 @@ export function Programar() {
           </ul>
         )}
       </div>
-      <Modal abierto={!!exito} onCerrar={() => setExito(null)}>
+      <Modal abierto={!!exito} onCerrar={() => setExito(null)} etiqueta="Función programada">
         {exito && (
           <div className="text-center">
             <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-oro/60 bg-oro/15 text-oro">

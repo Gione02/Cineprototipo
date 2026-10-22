@@ -8,10 +8,12 @@ import Image from "next/image";
  */
 export function Logo({ href = "/", compacto = false }: { href?: string; compacto?: boolean }) {
   return (
-    <Link href={href} className="group flex shrink-0 items-center gap-2" aria-label="Cineight, ir al inicio">
+    <Link href={href} className="group flex shrink-0 items-center gap-2" title="Ir al inicio">
       <span className="logo-destello transition-transform duration-300 group-hover:scale-105">
         <Image src="/logo-cineight.png" alt="" aria-hidden width={480} height={245} priority quality={75} sizes="72px" className="h-7 w-auto sm:h-9" />
       </span>
+      {/* El nombre accesible sale del texto visible (WCAG 2.5.3); sin texto visible, se agrega uno sólo para lectores de pantalla */}
+      {compacto && <span className="sr-only">Cineight, ir al inicio</span>}
       {!compacto && (
         <span className="leading-none">
           <span className="titulo block text-xl leading-none sm:text-2xl">CINEIGHT</span>

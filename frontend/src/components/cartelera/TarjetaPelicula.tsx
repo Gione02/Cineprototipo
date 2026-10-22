@@ -20,11 +20,12 @@ export function TarjetaPelicula({ p, i }: { p: Pelicula; i: number }) {
   const badge = p.categoria === "estreno" ? (conCola ? "Preestreno IMAX" : "Estreno") : p.categoria === "proximamente" ? fechaEstreno(p) : "En cartelera";
 
   return (
-    // Entrada animada sólo con opacity/transform y únicamente al aparecer en pantalla (whileInView, una vez).
+    // Entrada animada sólo con transform y únicamente al aparecer en pantalla (whileInView, una vez).
+    // Sin opacity 0 inicial: las tarjetas que aún no se ven en el carrusel siguen siendo legibles para lectores de pantalla.
     // transition-colors (y no `transition`) evita que el hover anime box-shadow, que no se compone en GPU.
     <m.article
-      initial={{ opacity: 0, y: 16 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={{ y: 16 }}
+      whileInView={{ y: 0 }}
       viewport={{ once: true, margin: "0px -40px 0px 0px" }}
       transition={{ delay: Math.min(i, 5) * 0.05, duration: 0.35 }}
       className="tarjeta group flex h-full flex-col overflow-hidden transition-colors hover:border-arena/60"

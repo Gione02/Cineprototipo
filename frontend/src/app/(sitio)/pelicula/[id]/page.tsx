@@ -140,15 +140,18 @@ export default function FichaPelicula() {
             ))}
           </div>
         </div>
-        <dl className="tarjeta h-fit divide-y divide-borde px-4">
-          <p className="etiqueta py-3 text-oro">Ficha técnica</p>
-          {ficha.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-4 py-2.5 text-sm">
-              <dt className="shrink-0 text-tenue">{k}</dt>
-              <dd className="text-right font-semibold">{v}</dd>
-            </div>
-          ))}
-        </dl>
+        {/* El encabezado va fuera del <dl>: una lista de definiciones sólo admite grupos dt/dd (WCAG 1.3.1) */}
+        <div className="tarjeta h-fit px-4">
+          <h2 className="etiqueta py-3 text-oro">Ficha técnica</h2>
+          <dl className="divide-y divide-borde border-t border-borde">
+            {ficha.map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-4 py-2.5 text-sm">
+                <dt className="shrink-0 text-tenue">{k}</dt>
+                <dd className="text-right font-semibold">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </section>
 
       <ModalTrailer p={p} abierto={trailer} onCerrar={() => setTrailer(false)} />

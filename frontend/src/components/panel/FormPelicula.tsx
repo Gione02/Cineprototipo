@@ -221,7 +221,7 @@ export function FormPelicula({ onListo }: { onListo: (id: string) => void }) {
               </span>
             )}
           </button>
-          <input ref={archivo} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => cargarImagen(e.target.files?.[0])} />
+          <input ref={archivo} type="file" aria-label="Imagen del póster (JPG, PNG o WebP)" accept="image/jpeg,image/png,image/webp" className="sr-only" onChange={(e) => cargarImagen(e.target.files?.[0])} />
         </div>
 
         {/* Ficha */}

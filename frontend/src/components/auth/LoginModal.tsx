@@ -33,7 +33,7 @@ const ahoraMs = () => Date.now();
 export function LoginModal() {
   const { loginAbierto, cerrarLogin, modoLogin } = useApp();
   return (
-    <Modal abierto={loginAbierto} onCerrar={cerrarLogin} ancho="max-w-md" z="z-[58]">
+    <Modal abierto={loginAbierto} onCerrar={cerrarLogin} ancho="max-w-md" z="z-[58]" etiqueta={modoLogin === "registro" ? "Crear cuenta" : "Iniciar sesión"}>
       {loginAbierto && <Contenido key={modoLogin} modoInicial={modoLogin} />}
     </Modal>
   );

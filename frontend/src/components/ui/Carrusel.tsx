@@ -54,11 +54,12 @@ export function Carrusel({ children, etiqueta, anchoItem = "w-[46%] sm:w-[31%] l
       <div
         ref={pista}
         tabIndex={0}
+        aria-label={`${etiqueta}: desplázate con las flechas izquierda y derecha`}
         onKeyDown={(e) => {
           if (e.key === "ArrowRight") mover(1);
           if (e.key === "ArrowLeft") mover(-1);
         }}
-        className="sin-scrollbar -mx-4 flex touch-pan-x touch-pan-y snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain px-4 pb-2 outline-none sm:-mx-6 sm:scroll-px-6 sm:gap-5 sm:px-6"
+        className="sin-scrollbar -mx-4 flex touch-pan-x touch-pan-y snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain px-4 pb-2 sm:-mx-6 sm:scroll-px-6 sm:gap-5 sm:px-6"
       >
         {Children.map(children, (hijo) => (
           <div className={`shrink-0 snap-start ${anchoItem}`}>{hijo}</div>

@@ -97,16 +97,13 @@ export default function PaginaFuncion() {
   }, []);
   const conexion = useAsientosEnVivo(fid, alEvento);
 
-  // Al salir de la página (o cerrar la pestaña) se sueltan las butacas seleccionadas que no se reservaron.
+  // Al navegar a otra página de la app se sueltan las butacas seleccionadas que no se reservaron.
+  // Al recargar o cerrar la pestaña NO se sueltan: al volver se recuperan (misBloqueos) y, si el cliente no vuelve,
+  // el TTL de Redis las libera a los 5 minutos. Así una recarga no hace perder la selección.
   useEffect(() => {
     if (!fid) return;
-    const soltar = () => {
-      if (selRef.current.length) appRef.current.liberarAsientos(fid, selRef.current);
-    };
-    window.addEventListener("pagehide", soltar);
     return () => {
-      window.removeEventListener("pagehide", soltar);
-      soltar();
+      if (selRef.current.length) appRef.current.liberarAsientos(fid, selRef.current);
     };
   }, [fid]);
 
@@ -461,7 +458,7 @@ export default function PaginaFuncion() {
       </Modal>
 
       {/* Compra exitosa */}
-      <Modal abierto={!!emitidos} onCerrar={() => router.push("/mis-entradas")} ancho="max-w-xl">
+      <Modal abierto={!!emitidos} onCerrar={() => router.push("/mis-entradas")} ancho="max-w-xl" etiqueta="Compra exitosa">
         {emitidos && (
           <m.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} className="space-y-4">
             <div className="text-center">

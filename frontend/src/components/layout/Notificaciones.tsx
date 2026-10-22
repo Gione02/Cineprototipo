@@ -35,7 +35,7 @@ export function Toasts({ toasts }: { toasts: Toast[] }) {
 /** Aviso importante que requiere confirmación (sesión expirada, reserva vencida, cuenta dada de baja). */
 export function VentanaAviso({ aviso, onCerrar }: { aviso: Aviso | null; onCerrar: () => void }) {
   return (
-    <Modal abierto={!!aviso} onCerrar={onCerrar} z="z-[60]">
+    <Modal abierto={!!aviso} onCerrar={onCerrar} z="z-[60]" etiqueta={aviso?.titulo}>
       {aviso && (
         <div className="text-center">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-full border border-rojo/50 bg-vino text-salmon">
