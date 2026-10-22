@@ -3,7 +3,7 @@
 import { KeyRound, Lock, LockOpen, Pencil, RotateCcw, Save, Trash2, UserPlus } from "lucide-react";
 import { Boton } from "@/components/ui/Boton";
 import { useState } from "react";
-import { CLAVE_DEMO, ROL_TXT } from "@/data/catalogo";
+import { ROL_TXT } from "@/data/catalogo";
 import type { Rol } from "@/types/catalogo";
 import { useApp } from "@/store/AppProvider";
 import { Modal } from "@/components/ui/Modal";
@@ -117,8 +117,6 @@ export function Usuarios() {
               <th className={thCls}>Usuario</th>
               <th className={thCls}>Rol</th>
               <th className={thCls}>Estado</th>
-              <th className={`${thCls} text-right`}>Saldo</th>
-              <th className={`${thCls} text-right`}>Boletos</th>
               <th className={thCls}>Alta</th>
               <th className={`${thCls} text-right`}>Acciones</th>
             </tr>
@@ -138,8 +136,6 @@ export function Usuarios() {
                     <span className={c.rol === "cliente" ? "badge-borde" : "badge-vino"}>{ROL_TXT[c.rol]}</span>
                   </td>
                   <td className="pr-3 text-xs font-bold">{c.activo ? <span className="text-oro">● Activo</span> : <span className="text-salmon">● Dado de baja</span>}</td>
-                  <td className="pr-3 text-right font-bold text-oro">{c.rol === "cliente" ? `◆ ${c.saldo}` : "—"}</td>
-                  <td className="pr-3 text-right">{c.boletos.length}</td>
                   <td className="pr-3 text-xs text-tenue">{new Date(c.creado).toLocaleDateString("es-GT")}</td>
                   <td className="text-right">
                     <div className="flex justify-end gap-1.5">
@@ -192,9 +188,6 @@ export function Usuarios() {
           <Boton type="submit" icono={KeyRound} tamano="lg" className="w-full">
             Verificar y continuar
           </Boton>
-          <p className="text-center text-[11px] text-apagado">
-            Prototipo: la contraseña del administrador de demostración es <code className="text-tinta">{CLAVE_DEMO}</code>
-          </p>
         </form>
       </Modal>
 

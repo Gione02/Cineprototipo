@@ -1,5 +1,5 @@
 // Preparación del póster en el navegador antes de enviarlo: se valida el tipo, se reduce a 500 × 750 px
-// como máximo y se comprime en JPEG. Así la imagen pesa decenas de KB (cabe en localStorage en modo demostración
+// como máximo y se comprime en JPEG. Así la imagen pesa decenas de KB (viaja rápido a la API
 // y viaja rápido a la API, que acepta hasta 2 MB).
 
 const TIPOS = ["image/jpeg", "image/png", "image/webp"];

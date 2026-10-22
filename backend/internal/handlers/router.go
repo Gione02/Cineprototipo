@@ -73,12 +73,14 @@ func NuevoRouter(s Servicios, limites Limites, origenes map[string]bool) http.Ha
 	mux.HandleFunc("POST /api/boletos/{token}/validar", a.validarBoleto)
 	mux.Handle("POST /api/cola/{evento}", sensible(a.entrarCola))
 	mux.HandleFunc("GET /api/cola/{evento}/{usuario}", a.posicionCola)
+	mux.HandleFunc("DELETE /api/cola/{evento}/{usuario}", a.salirCola)
 	mux.HandleFunc("GET /api/metricas", a.metricas)
+	mux.HandleFunc("GET /api/clientes/historial", a.historialClientes)
 
 	// Seguridad
 	mux.Handle("POST /api/captcha/verificar", interactivo(a.verificarCaptcha))
 
-	return httpx.CORS(origenes, mux)
+	return httpx.CORS(origenes, httpx.Recuperar(mux))
 }
 
 // limitar envuelve un handler con el límite de solicitudes por IP de su grupo (RF-53).
@@ -94,11 +96,18 @@ func (a *API) limitar(grupo string, limite int64) func(http.HandlerFunc) http.Ha
 	}
 }
 
-// fallar traduce un error de servicio a una respuesta HTTP. Los errores no previstos se registran y responden 500.
+// fallar traduce un error de servicio a una respuesta HTTP. Si Redis no responde, 503 con un mensaje controlado;
+// los demás errores no previstos se registran y responden 500.
 func fallar(w http.ResponseWriter, err error) {
 	var e *domain.Error
 	if errors.As(err, &e) {
 		httpx.Error(w, e.Estado, e.Mensaje)
+		return
+	}
+	if errors.Is(err, domain.ErrNoDisponible) {
+		log.Printf("redis no disponible: %v", err)
+		w.Header().Set("Retry-After", "5")
+		httpx.Error(w, http.StatusServiceUnavailable, domain.MensajeNoDisponible)
 		return
 	}
 	log.Printf("error interno: %v", err)

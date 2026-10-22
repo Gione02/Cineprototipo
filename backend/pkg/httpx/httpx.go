@@ -3,8 +3,10 @@ package httpx
 
 import (
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strings"
 )
 
@@ -30,8 +32,21 @@ func LeerHasta(r *http.Request, destino any, maxBytes int64) error {
 	return json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBytes)).Decode(destino)
 }
 
+// ConfiarProxy indica que la API corre detrás del proxy de un hosting (Render, Railway, Fly…): todas las
+// conexiones llegan desde el proxy, así que la IP del cliente es la última que el proxy agregó a X-Forwarded-For.
+// Sólo debe activarse detrás de un proxy: si no, un cliente podría falsear su IP con esa cabecera.
+var ConfiarProxy bool
+
 // IP devuelve la dirección del cliente (sin puerto).
 func IP(r *http.Request) string {
+	if ConfiarProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			partes := strings.Split(xff, ",")
+			if ip := strings.TrimSpace(partes[len(partes)-1]); ip != "" {
+				return ip
+			}
+		}
+	}
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
@@ -55,6 +70,25 @@ func CORS(origenes map[string]bool, next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Recuperar atrapa cualquier panic de un handler: lo registra con su traza y responde un error JSON controlado
+// en lugar de cortar la conexión. http.ErrAbortHandler se relanza porque es la forma estándar de abortar una respuesta.
+func Recuperar(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			v := recover()
+			if v == nil {
+				return
+			}
+			if v == http.ErrAbortHandler {
+				panic(v)
+			}
+			log.Printf("panic en %s %s: %v\n%s", r.Method, r.URL.Path, v, debug.Stack())
+			Error(w, http.StatusInternalServerError, "Error interno del servidor.")
+		}()
 		next.ServeHTTP(w, r)
 	})
 }

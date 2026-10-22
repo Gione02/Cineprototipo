@@ -88,7 +88,8 @@ func (a *API) desbloquear(w http.ResponseWriter, r *http.Request) {
 //
 // Al conectar envía un evento "estado" con la ocupación completa y después un evento "asientos"
 // por cada cambio (bloqueado, liberado, vendido) publicado en Redis por cualquier instancia de la API.
-// Cada 20 s manda un comentario para mantener viva la conexión a través de proxies.
+// Cada 20 s reenvía la foto completa: mantiene viva la conexión a través de proxies y refleja los bloqueos vencidos
+// aun en servicios de Redis administrados que no permiten activar las notificaciones de expiración.
 func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	flusher, ok := w.(http.Flusher)
@@ -133,7 +134,12 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case <-latido.C:
-			fmt.Fprint(w, ": ping\n\n")
+			if o, err := a.s.Asientos.Ocupacion(ctx, fid); err == nil {
+				datos, _ := json.Marshal(o)
+				fmt.Fprintf(w, "event: estado\ndata: %s\n\n", datos)
+			} else {
+				fmt.Fprint(w, ": ping\n\n")
+			}
 			flusher.Flush()
 		case msg, ok := <-mensajes:
 			if !ok {

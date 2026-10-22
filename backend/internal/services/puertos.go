@@ -29,10 +29,28 @@ type Ventas interface {
 
 // Cuentas gestiona clientes y créditos.
 type Cuentas interface {
+	ExisteCliente(ctx context.Context, correo string) (bool, error)
 	VincularCliente(ctx context.Context, correo, nombre string) (id int64, saldo int, err error)
 	Cuenta(ctx context.Context, usuarioID int64) (domain.Cuenta, error)
 	AcreditarTrivia(ctx context.Context, usuarioID int64, partida string, monto int) (acreditado bool, saldo int, err error)
 	Metricas(ctx context.Context) (domain.Metricas, error)
+	HistorialClientes(ctx context.Context) ([]domain.HistorialCliente, error)
+}
+
+// PlanificadorDias completa la cartelera de los días indicados según el plan de salas.
+type PlanificadorDias interface {
+	ProgramarDias(ctx context.Context, dias []time.Time, plan []domain.PlanSala) (int, error)
+}
+
+// Pases son comprobantes de un solo uso de que el cliente superó reCAPTCHA.
+type Pases interface {
+	EmitirPase(ctx context.Context, ttl time.Duration) (string, error)
+	CanjearPase(ctx context.Context, pase string) (bool, error)
+}
+
+// GuardiaAntiBots exige el pase anti-bots en las operaciones que crean recursos (p. ej. una cuenta con bono).
+type GuardiaAntiBots interface {
+	ExigirPase(ctx context.Context, pase, motivo string) error
 }
 
 // Auditoria registra operaciones críticas en la bitácora (RNF-22).
@@ -59,8 +77,15 @@ type Candados interface {
 
 // Colas es la cola virtual y el contador de solicitudes.
 type Colas interface {
-	EntrarCola(ctx context.Context, evento, usuario string) error
-	PosicionCola(ctx context.Context, evento, usuario string) (rango, total int64, ok bool, err error)
+	EntrarCola(ctx context.Context, evento, usuario string, ahora time.Time) error
+	AvanzarCola(ctx context.Context, evento, usuario string, ahora time.Time, capacidad int64, turno, inactividad time.Duration) (domain.EstadoCola, error)
+	SalirCola(ctx context.Context, evento, usuario string) error
+	TurnoActivo(ctx context.Context, evento, usuario string, ahora time.Time) (bool, error)
 	Colas(ctx context.Context) map[string]int64
 	Contar(ctx context.Context, grupo, ip string) (int64, error)
+}
+
+// Turnos verifica que quien compra un preestreno tenga turno vigente de la cola virtual.
+type Turnos interface {
+	ExigirTurno(ctx context.Context, evento *string, usuarioID int64) error
 }

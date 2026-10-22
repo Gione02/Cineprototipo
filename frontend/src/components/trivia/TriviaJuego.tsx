@@ -6,7 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, m } from "framer-motion";
 import { PARAMETROS } from "@/data/parametros";
 import { PREGUNTAS } from "@/data/catalogo";
-import { premioTrivia, useApp } from "@/store/AppProvider";
+import { useApp } from "@/store/AppProvider";
+import { premioTrivia } from "@/store/estado";
 
 const POR_PARTIDA = PARAMETROS.preguntasTrivia;
 const SEGUNDOS = 15;

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -34,6 +35,15 @@ func NuevoRedis(rdb *redis.Client) *Redis { return &Redis{rdb: rdb} }
 
 // Cliente expone el cliente subyacente (lo usa el oyente de expiraciones).
 func (r *Redis) Cliente() *redis.Client { return r.rdb }
+
+// falla marca un error de Redis como servicio no disponible (la API responde 503).
+// redis.Nil no es una falla: significa que la clave no existe.
+func falla(err error) error {
+	if err == nil || errors.Is(err, redis.Nil) {
+		return err
+	}
+	return fmt.Errorf("%w: %v", domain.ErrNoDisponible, err)
+}
 
 // ClaveAsiento devuelve la clave de una butaca.
 func ClaveAsiento(funcionID int, asiento string) string {
@@ -104,7 +114,8 @@ return 0`)
 func (r *Redis) Bloquear(ctx context.Context, funcionID int, asiento string, usuarioID int64, ttl time.Duration, maximo int) (int, error) {
 	claves := []string{ClaveAsiento(funcionID, asiento), fmt.Sprintf("bloqueos:%d:%d", funcionID, usuarioID)}
 	prefijo := fmt.Sprintf("%s%d:", prefijoAsiento, funcionID)
-	return scriptBloquear.Run(ctx, r.rdb, claves, Propietario(usuarioID), int(ttl.Seconds()), maximo, prefijo, asiento).Int()
+	n, err := scriptBloquear.Run(ctx, r.rdb, claves, Propietario(usuarioID), int(ttl.Seconds()), maximo, prefijo, asiento).Int()
+	return n, falla(err)
 }
 
 // LiberarSi borra las butacas cuyo valor coincide con propietario y devuelve las etiquetas liberadas.
@@ -115,7 +126,7 @@ func (r *Redis) LiberarSi(ctx context.Context, funcionID int, asientos []string,
 	}
 	res, err := scriptLiberarSi.Run(ctx, r.rdb, claves, propietario).StringSlice()
 	if err != nil {
-		return nil, err
+		return nil, falla(err)
 	}
 	liberadas := make([]string, 0, len(res))
 	for _, k := range res {
@@ -134,7 +145,7 @@ func (r *Redis) Retener(ctx context.Context, res domain.Reserva, ttl time.Durati
 	}
 	n, err := scriptRetener.Run(ctx, r.rdb, claves, res.ID, Propietario(res.UsuarioID), int(ttl.Seconds())).Int()
 	if err != nil || n == 0 {
-		return "", err
+		return "", falla(err)
 	}
 	return res.Asientos[n-1], nil
 }
@@ -194,13 +205,16 @@ func (r *Redis) GuardarReserva(ctx context.Context, res domain.Reserva, ttl time
 	pipe.HSet(ctx, clave, "funcion_id", res.FuncionID, "usuario_id", res.UsuarioID, "asientos", strings.Join(res.Asientos, ","))
 	pipe.Expire(ctx, clave, ttl)
 	_, err := pipe.Exec(ctx)
-	return err
+	return falla(err)
 }
 
 // Reserva lee una reserva vigente. Devuelve domain.ErrNoExiste si venció o no existe.
 func (r *Redis) Reserva(ctx context.Context, id string) (domain.Reserva, error) {
 	h, err := r.rdb.HGetAll(ctx, "reserva:"+id).Result()
-	if err != nil || len(h) == 0 {
+	if err != nil {
+		return domain.Reserva{}, falla(err)
+	}
+	if len(h) == 0 {
 		return domain.Reserva{}, domain.ErrNoExiste
 	}
 	fid, _ := strconv.Atoi(h["funcion_id"])
@@ -226,7 +240,7 @@ func (r *Redis) Publicar(ctx context.Context, funcionID int, ev domain.EventoAsi
 	if err != nil {
 		return err
 	}
-	return r.rdb.Publish(ctx, CanalFuncion(funcionID), datos).Err()
+	return falla(r.rdb.Publish(ctx, CanalFuncion(funcionID), datos).Err())
 }
 
 // Suscribir abre una suscripción al canal de una función. Quien llama debe cerrarla.
@@ -235,7 +249,7 @@ func (r *Redis) Suscribir(ctx context.Context, funcionID int) (*redis.PubSub, er
 	// Receive espera la confirmación: a partir de aquí no se pierde ningún mensaje.
 	if _, err := sub.Receive(ctx); err != nil {
 		sub.Close()
-		return nil, err
+		return nil, falla(err)
 	}
 	return sub, nil
 }
@@ -255,16 +269,24 @@ func (r *Redis) Expiraciones(ctx context.Context, fn func(funcionID int, asiento
 	}
 	sub := r.rdb.PSubscribe(ctx, "__keyevent@*__:expired")
 	defer sub.Close()
+	// Si Redis cae, se reintenta con espera creciente (1 s, 2 s, 4 s… hasta 30 s) en lugar de insistir cada segundo.
+	espera := time.Second
 	for {
 		msg, err := sub.ReceiveMessage(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
 			}
-			log.Printf("tiempo real: oyente de expiraciones: %v", err)
-			time.Sleep(time.Second)
+			log.Printf("tiempo real: oyente de expiraciones (reintento en %s): %v", espera, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(espera):
+			}
+			espera = min(espera*2, 30*time.Second)
 			continue
 		}
+		espera = time.Second
 		if fid, asiento, ok := ParsearClaveAsiento(msg.Payload); ok {
 			fn(fid, asiento)
 		}

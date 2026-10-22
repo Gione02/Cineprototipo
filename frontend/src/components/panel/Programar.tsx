@@ -22,7 +22,7 @@ export function Programar() {
   const enVenta = peliculas.filter((p) => p.categoria !== "proximamente");
   const [exito, setExito] = useState<Funcion | null>(null);
   const [peli, setPeli] = useState(enVenta[0]?.id ?? "");
-  // Valor inicial: el primer hueco libre para la primera película (la programación base va de 10:00 a 22:00).
+  // Valor inicial: el primer hueco libre para la primera película (la programación base va de 10:00 a 23:00).
   const [inicial] = useState(() => primerHueco(funciones, SALAS.map((s) => s.id), pelicula(enVenta[0]?.id ?? "").duracion));
   const [salaId, setSalaId] = useState(inicial.salaId);
   const [fecha, setFecha] = useState(inicial.fecha);

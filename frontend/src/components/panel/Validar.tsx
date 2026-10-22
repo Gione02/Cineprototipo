@@ -11,11 +11,11 @@ import { card } from "@/components/panel/Elementos";
 
 /* ─────────── Validar acceso (RF-09, RF-27, RF-28) ─────────── */
 export function Validar() {
-  const { validarBoleto, cuentas, funciones, modoApi } = useApp();
+  const { validarBoleto, funciones } = useApp();
   const [codigo, setCodigo] = useState("");
   const [res, setRes] = useState<Validacion | null>(null);
   const [validando, setValidando] = useState(false);
-  // Con la API, la validación es atómica en PostgreSQL (POST /api/boletos/{token}/validar).
+  // La validación es atómica en PostgreSQL (POST /api/boletos/{token}/validar).
   const validar = async (c = codigo) => {
     if (!c.trim() || validando) return;
     setValidando(true);
@@ -26,13 +26,6 @@ export function Validar() {
     }
   };
   const f = res?.boleto && funciones.find((x) => x.id === res.boleto!.funcionId);
-  const recientes =
-    modoApi === "conectado"
-      ? []
-      : Object.values(cuentas)
-          .flatMap((c) => c.boletos)
-          .sort((a, b) => b.emitido.localeCompare(a.emitido))
-          .slice(0, 5);
 
   return (
     <div className="grid gap-6 md:grid-cols-2">
@@ -45,19 +38,7 @@ export function Validar() {
           <ScanLine aria-hidden className="h-4 w-4" />
           {validando ? "Validando…" : "Validar"}
         </button>
-        {modoApi === "conectado" && (
-          <p className="text-xs text-apagado">Conectado a la API: pega el token de un boleto comprado (Mis Entradas → abrir QR). Cada boleto sólo puede validarse una vez.</p>
-        )}
-        {recientes.length > 0 && (
-          <div>
-            <p className="etiqueta mb-1.5">Boletos emitidos recientemente (para probar)</p>
-            {recientes.map((b) => (
-              <button key={b.token} onClick={() => { setCodigo(b.token); validar(b.token); }} className="block truncate py-0.5 text-xs text-salmon hover:text-white">
-                {b.token} · {b.asiento} · {b.titular}
-              </button>
-            ))}
-          </div>
-        )}
+        <p className="text-xs text-apagado">Escanea el QR del boleto o escribe su código. Cada boleto sólo puede validarse una vez.</p>
       </div>
       {res && (
         <m.div

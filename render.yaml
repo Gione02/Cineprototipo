@@ -1,0 +1,41 @@
+# Blueprint de Render (https://render.com/docs/blueprint-spec): crea la API en Go, PostgreSQL y Redis (Key Value).
+# Render → New → Blueprint → elige este repositorio. Después de crearlo:
+#   1. Carga el esquema una vez:  psql "<External Database URL>" -f db/init.sql
+#   2. En la API, pon CORS_ORIGINS con la URL del frontend (p. ej. https://cineight.vercel.app).
+# El frontend se publica aparte en Vercel (ver README, "Publicar en internet").
+services:
+  - type: web
+    name: cineight-api
+    runtime: docker
+    rootDir: backend
+    plan: free
+    healthCheckPath: /api/salud
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cineight-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: cineight-redis
+          property: connectionString
+      - key: TRUST_PROXY
+        value: "true"
+      - key: COLA_CAPACIDAD
+        value: "2"
+      - key: CORS_ORIGINS
+        sync: false
+      - key: RECAPTCHA_SECRET
+        sync: false
+
+  - type: keyvalue
+    name: cineight-redis
+    plan: free
+    ipAllowList: []
+
+databases:
+  - name: cineight-db
+    plan: free
+    databaseName: cineight
+    user: cineight

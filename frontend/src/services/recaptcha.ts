@@ -13,7 +13,7 @@ declare global {
   }
 }
 
-/** Clave pública del sitio. Sin ella el prototipo usa sólo el campo trampa y el tiempo mínimo de envío. */
+/** Clave pública del sitio. Sin ella quedan sólo el campo trampa y el tiempo mínimo de envío. */
 export const CLAVE_SITIO = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY ?? "";
 export const recaptchaConfigurado = CLAVE_SITIO !== "";
 
@@ -46,3 +46,14 @@ export async function ejecutarRecaptcha(accion: AccionCaptcha): Promise<string> 
   const g = await cargarRecaptcha();
   return g.execute(CLAVE_SITIO, { action: accion });
 }
+
+// Pase anti-bots: el backend lo entrega al aprobar el token y lo exige para crear la cuenta en POST /api/sesion.
+// Sólo vive en memoria (vence en el servidor a los 10 min y es de un solo uso).
+let pase = "";
+export const guardarPase = (p: string | undefined) => {
+  pase = p ?? "";
+};
+export const paseVigente = () => pase;
+export const olvidarPase = () => {
+  pase = "";
+};

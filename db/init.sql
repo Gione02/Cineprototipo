@@ -111,19 +111,13 @@ CREATE TABLE bitacora_auditoria (
   fecha        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- ───────── Datos de demostración ─────────
--- El hash es un marcador: el inicio de sesión del prototipo todavía se valida en el frontend (pendiente: JWT + bcrypt).
+-- ───────── Datos iniciales ─────────
+-- Cuentas del personal. Los clientes se crean solos al registrarse (POST /api/sesion, con bono de bienvenida).
+-- El hash es un marcador: el inicio de sesión todavía se valida en el frontend (pendiente: JWT + bcrypt).
 INSERT INTO usuarios (nombre, correo, hash_contrasena, rol_id) VALUES
-  ('Ana López',       'ana.lopez@correo.com',  '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 1),
-  ('Luis Pérez',      'luis.perez@correo.com', '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 1),
   ('Carlos Agente',   'agente@cineight.gt',    '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 2),
   ('Admin Sistema',   'admin@cineight.gt',     '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 3),
-  ('Laura Auditora',  'auditor@cineight.gt',   '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 4),
-  ('Taquilla física', 'taquilla@cineight.gt',  '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 2);
-INSERT INTO cuentas_credito VALUES (1, 120), (2, 120), (6, 0);
-INSERT INTO movimientos_credito (usuario_id, tipo, monto, referencia) VALUES
-  (1, 'recarga', 120, 'bono-bienvenida:1'),
-  (2, 'recarga', 120, 'bono-bienvenida:2');
+  ('Laura Auditora',  'auditor@cineight.gt',   '$2a$10$Q9r1m0h0pZ3x1x7nqv8b0eW8m0n2Zq4S2Wc6l2y2a3o7xJ5h1m6yG', 4);
 
 INSERT INTO salas (codigo, nombre, tipo, filas, columnas, aforo) VALUES
   ('s1', 'Sala 1', 'IMAX Láser',  12, 16, 192),
@@ -169,31 +163,32 @@ INSERT INTO peliculas (slug, titulo, clasificacion, duracion_min, estado) VALUES
   ('tron-ares',            'TRON: Ares',                            'PG-13', 125, 'proximamente'),
   ('avengers-secret-wars', 'Avengers: Secret Wars',                 'PG-13', 180, 'proximamente');
 
--- Programación relativa a "hoy" en la hora de Guatemala. Es la misma que genera funcionesBase() en el frontend
--- (frontend/src/data/catalogo.ts) y produce los mismos códigos f1, f2…:
---   * cada película se proyecta en dos salas; cada sala alterna dos películas desde las 10:00 (salas 1–8)
---     o las 11:30 (salas 9–16); los días impares empieza por la segunda;
---   * la siguiente función inicia al terminar la anterior + 20 min de limpieza, redondeado al cuarto de hora;
---   * no se programan inicios después de las 22:00; antes de las 13:00 hay 10 créditos de descuento.
+-- Programación de hoy y los 3 días siguientes, en la hora de Guatemala. Es el mismo plan que la API usa para
+-- completar los días siguientes (backend/internal/domain/programacion.go):
+--   * 8 pares de películas (una larga con una corta); cada par ocupa dos salas del mismo formato con el orden
+--     invertido, así cada película tiene función a las 10:00 todos los días;
+--   * todas las salas abren a las 10:00; la siguiente función inicia al terminar la anterior + 20 min de limpieza,
+--     redondeado al cuarto de hora, sin inicios después de las 22:00 (5 funciones por sala y por película al día);
+--   * los días impares cada sala empieza por la segunda película; antes de las 13:00 hay 10 créditos de descuento.
 INSERT INTO funciones (codigo, pelicula_id, sala_id, inicio, fin, formato, idioma, precio, evento)
 WITH RECURSIVE
 plan(orden, sala, a, b, formato, precio, desde) AS (VALUES
   ( 1, 's1',  'dune-2',               'top-gun-maverick',     'IMAX Láser',  70, 600),
-  ( 2, 's2',  'the-batman',           'furiosa',              'Dolby Atmos', 60, 600),
-  ( 3, 's3',  'gladiador',            'whiplash',             '2D',          50, 600),
-  ( 4, 's4',  'avatar-agua',          'planeta-simios',       '4DX 3D',      75, 600),
-  ( 5, 's5',  'deadpool-wolverine',   'alien-romulus',        'Dolby Atmos', 60, 600),
-  ( 6, 's6',  'dark-knight',          'todo-en-todas-partes', '2D',          50, 600),
-  ( 7, 's7',  'oppenheimer',          'civil-war',            '2D VIP',      80, 600),
-  ( 8, 's8',  'intensa-mente-2',      'matrix',               '2D',          50, 600),
-  ( 9, 's9',  'top-gun-maverick',     'oppenheimer',          'IMAX Láser',  70, 690),
-  (10, 's10', 'furiosa',              'dune-2',               'Dolby Atmos', 60, 690),
-  (11, 's11', 'whiplash',             'deadpool-wolverine',   '2D',          50, 690),
-  (12, 's12', 'planeta-simios',       'the-batman',           'Dolby Atmos', 60, 690),
-  (13, 's13', 'alien-romulus',        'gladiador',            '2D',          50, 690),
-  (14, 's14', 'todo-en-todas-partes', 'intensa-mente-2',      '2D',          50, 690),
-  (15, 's15', 'civil-war',            'dark-knight',          '2D VIP',      80, 690),
-  (16, 's16', 'avatar-agua',          'matrix',               '4DX 3D',      75, 690)
+  ( 2, 's9',  'top-gun-maverick',     'dune-2',               'IMAX Láser',  70, 600),
+  ( 3, 's2',  'the-batman',           'whiplash',             'Dolby Atmos', 60, 600),
+  ( 4, 's12', 'whiplash',             'the-batman',           'Dolby Atmos', 60, 600),
+  ( 5, 's5',  'furiosa',              'deadpool-wolverine',   'Dolby Atmos', 60, 600),
+  ( 6, 's10', 'deadpool-wolverine',   'furiosa',              'Dolby Atmos', 60, 600),
+  ( 7, 's4',  'avatar-agua',          'intensa-mente-2',      '4DX 3D',      75, 600),
+  ( 8, 's16', 'intensa-mente-2',      'avatar-agua',          '4DX 3D',      75, 600),
+  ( 9, 's7',  'oppenheimer',          'civil-war',            '2D VIP',      80, 600),
+  (10, 's15', 'civil-war',            'oppenheimer',          '2D VIP',      80, 600),
+  (11, 's3',  'gladiador',            'alien-romulus',        '2D',          50, 600),
+  (12, 's13', 'alien-romulus',        'gladiador',            '2D',          50, 600),
+  (13, 's6',  'dark-knight',          'matrix',               '2D',          50, 600),
+  (14, 's8',  'matrix',               'dark-knight',          '2D',          50, 600),
+  (15, 's11', 'planeta-simios',       'todo-en-todas-partes', '2D',          50, 600),
+  (16, 's14', 'todo-en-todas-partes', 'planeta-simios',       '2D',          50, 600)
 ),
 prog(orden, sala, dia, n, minuto, peli, a, b, formato, precio) AS (
   SELECT orden, sala, dia, 0, desde, CASE WHEN dia % 2 = 0 THEN a ELSE b END, a, b, formato, precio
@@ -222,15 +217,3 @@ CROSS JOIN LATERAL (
   SELECT ((date_trunc('day', now() AT TIME ZONE 'America/Guatemala') + make_interval(days => x.dia, mins => x.minuto))
           AT TIME ZONE 'America/Guatemala') AS inicio
 ) i;
-
--- Ocupación inicial: ventas de taquilla física (~28 %, 55 % en el preestreno), reproducible.
-INSERT INTO boletos (token, funcion_id, asiento, usuario_id, precio, reserva_id)
-SELECT 'CE-SEED-' || f.id || '-' || fila || '-' || col, f.id,
-       chr(65 + fila) || '-' || lpad((col + 1)::text, 2, '0'), 6, f.precio, 'SEED-' || f.codigo
-FROM funciones f
-JOIN salas s ON s.id = f.sala_id
-CROSS JOIN LATERAL generate_series(0, s.filas - 1) AS fila
-CROSS JOIN LATERAL generate_series(0, s.columnas - 1) AS col
-WHERE (hashtext(f.codigo || ':' || fila || ':' || col) & 1023) / 1024.0 < CASE WHEN f.evento IS NOT NULL THEN 0.55 ELSE 0.28 END;
--- Las ventas de taquilla no cuentan como "vendidos hoy" en línea: se fechan el día anterior.
-UPDATE boletos SET fecha_venta = now() - interval '1 day' WHERE reserva_id LIKE 'SEED-%';

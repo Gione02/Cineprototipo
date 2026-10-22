@@ -41,3 +41,12 @@ func (e *ErrTraslape) Error() string {
 
 // ErrNoExiste indica que un registro buscado no está en el almacenamiento.
 var ErrNoExiste = errors.New("no existe")
+
+// ErrFuncionIniciada: la función ya empezó (o se canceló) y no admite más ventas.
+var ErrFuncionIniciada = errors.New("la función ya comenzó")
+
+// ErrNoDisponible envuelve las fallas de conexión con Redis: la API responde 503 en lugar de un error interno.
+var ErrNoDisponible = errors.New("servicio de reservas no disponible")
+
+// MensajeNoDisponible es el texto que recibe el cliente cuando Redis no responde.
+const MensajeNoDisponible = "Servicio de reservas temporalmente no disponible"

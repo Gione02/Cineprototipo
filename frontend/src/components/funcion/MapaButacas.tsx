@@ -123,10 +123,9 @@ function Leyenda() {
 // Muestra si el mapa recibe los cambios de otros clientes en tiempo real.
 function IndicadorConexion({ estado }: { estado: EstadoConexion }) {
   const [punto, texto, titulo] = {
-    "en-vivo": ["bg-oro", "En vivo", "Los bloqueos de otros clientes aparecen al instante (SSE)"],
+    "en-vivo": ["bg-oro", "En vivo", "Las butacas que eligen otros clientes aparecen al instante"],
     conectando: ["bg-tenue animate-pulse", "Conectando", "Abriendo la conexión en tiempo real…"],
-    reconectando: ["bg-rojo animate-pulse", "Reconectando", "Se perdió la conexión en tiempo real; se consulta cada 5 s"],
-    demo: ["bg-arena", "Demo", "Sin API: la ocupación es simulada"],
+    reconectando: ["bg-rojo animate-pulse", "Reconectando", "Se perdió la conexión en tiempo real; reintentando"],
   }[estado];
   return (
     <span title={titulo} className="flex items-center gap-2 rounded-full border border-borde bg-panel px-3 py-1.5 text-[9px] font-bold uppercase tracking-[0.14em] text-tenue sm:text-[10px]">

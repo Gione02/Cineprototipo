@@ -4,7 +4,7 @@ import { Check, Timer } from "lucide-react";
 import { PARAMETROS } from "@/data/parametros";
 import { mmss, useRestante } from "@/hooks/useRestante";
 
-// Piezas del flujo de compra: temporizadores de la retención, pasos y desglose del total.
+// Piezas del flujo de compra: temporizadores de la retención, indicador de pasos y desglose del total.
 
 /** Reloj compacto mm:ss (barra inferior en móvil). */
 export function Reloj({ expira }: { expira: number }) {
@@ -30,16 +30,30 @@ export function CuentaReserva({ expira }: { expira: number }) {
   );
 }
 
-export function Paso({ n, activo, hecho, texto }: { n: number; activo: boolean; hecho: boolean; texto: string }) {
+const PASOS = ["Película", "Horario", "Butacas", "Pago"] as const;
+
+/** Indicador del recorrido de compra. `actual` es el índice del paso en curso (0 = Película). */
+export function PasosCompra({ actual }: { actual: number }) {
   return (
-    <li
-      className={`flex items-center gap-2 rounded-md border px-2.5 py-2 font-semibold uppercase tracking-wide ${
-        hecho ? "border-oro/40 text-oro" : activo ? "border-rojo/60 text-salmon" : "border-borde text-apagado"
-      }`}
-    >
-      <span className="grid h-5 w-5 place-items-center rounded-full bg-panel-2 text-[10px] font-bold">{hecho ? <Check aria-hidden className="h-3 w-3" /> : n}</span>
-      {texto}
-    </li>
+    <ol aria-label="Pasos de la compra" className="flex items-center gap-1.5 text-xs font-semibold sm:gap-2">
+      {PASOS.map((p, i) => {
+        const hecho = i < actual;
+        const enCurso = i === actual;
+        return (
+          <li key={p} aria-current={enCurso ? "step" : undefined} className="flex items-center gap-1.5 sm:gap-2">
+            {i > 0 && <span aria-hidden className={`h-px w-4 sm:w-8 ${hecho || enCurso ? "bg-rojo/70" : "bg-borde"}`} />}
+            <span
+              className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[11px] ${
+                hecho ? "border-oro/50 bg-oro/10 text-oro" : enCurso ? "border-rojo bg-vino text-salmon" : "border-borde text-apagado"
+              }`}
+            >
+              {hecho ? <Check aria-hidden className="h-3.5 w-3.5" /> : i + 1}
+            </span>
+            <span className={`hidden sm:inline ${enCurso ? "text-tinta" : hecho ? "text-tenue" : "text-apagado"}`}>{p}</span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -58,10 +72,6 @@ export function DesgloseTotal({ asientos, precio, total }: { asientos: string[];
           {asientos.length} × {precio} créditos
         </span>
         <span>{total}</span>
-      </div>
-      <div className="flex justify-between text-apagado">
-        <span>Descuentos</span>
-        <span>0</span>
       </div>
       <div className="flex justify-between border-t border-borde pt-2 font-bold">
         <span className="uppercase tracking-wide">Total</span>

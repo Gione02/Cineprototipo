@@ -1,10 +1,9 @@
 "use client";
 
-import { Activity, Armchair, ArrowRight, BarChart3, Download, LayoutDashboard, Pause, Play, ScrollText, Ticket, Users } from "lucide-react";
+import { Armchair, ArrowRight, Download, LayoutDashboard, ScrollText, Ticket, Users } from "lucide-react";
 import { Boton } from "@/components/ui/Boton";
 import type { IdSeccion } from "./MarcoPanel";
-import { useEffect, useState } from "react";
-import { m } from "framer-motion";
+import { useState } from "react";
 import { ROL_TXT, SALAS, pelicula, sala } from "@/data/catalogo";
 import { fmtFecha, fmtHora } from "@/utils/formato";
 import type { Funcion, Rol } from "@/types/catalogo";
@@ -13,55 +12,25 @@ import { Modal } from "@/components/ui/Modal";
 import { Poster } from "@/components/ui/Poster";
 import { useMetricas, useOcupacionVigente, useFilasVentas } from "@/hooks/usePanelDatos";
 import { descargarCsv, csvVentas } from "@/utils/csv";
-import { thCls, Caja, Kpi, Sparkline, Barra } from "@/components/panel/Elementos";
+import { thCls, Caja, Kpi, Barra } from "@/components/panel/Elementos";
 import { MapaSoloLectura } from "@/components/panel/MapaSoloLectura";
 
 /* ─────────── Panel general (RF-56): dashboard en paneles ─────────── */
 
 
 export function General({ ir }: { ir: (seccion: IdSeccion) => void }) {
-  const { funciones, ocupacion, cuentas, bitacora, modoApi } = useApp();
+  const { cuentas, bitacora } = useApp();
   const met = useMetricas();
   useOcupacionVigente();
   const filas = useFilasVentas(met);
-  const [serie, setSerie] = useState<number[]>(() => [12, 15, 14, 18, 22, 31, 38, 42, 36, 28, 24, 26]);
-  const [log, setLog] = useState<string[]>([]);
-  const [pausado, setPausado] = useState(false);
-  const [sobre, setSobre] = useState<number | null>(null);
   const [mapa, setMapa] = useState<Funcion | null>(null);
 
-  useEffect(() => {
-    if (pausado) return;
-    const plantillas = [
-      () => `[Checkout OK] ${1 + Math.floor(Math.random() * 3)} boletos confirmados`,
-      () => `[Redis TTL] Asiento ${"ABCDEFGH"[Math.floor(Math.random() * 8)]}-${String(1 + Math.floor(Math.random() * 10)).padStart(2, "0")} liberado`,
-      () => `[Anti-bot] IP 190.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.12 bloqueada (429)`,
-      () => `[Trivia] +${[10, 20, 50][Math.floor(Math.random() * 3)]} créditos acreditados`,
-      () => `[Lock] Sala ${1 + Math.floor(Math.random() * 3)} · SET NX adquirido`,
-    ];
-    const t = setInterval(() => {
-      const h = new Date().toLocaleTimeString("es-GT", { hour12: false });
-      setLog((l) => [`[${h}] ${plantillas[Math.floor(Math.random() * plantillas.length)]()}`, ...l].slice(0, 8));
-      setSerie((s) => [...s.slice(1), Math.max(5, Math.round(s[s.length - 1] + Math.random() * 14 - 7))]);
-    }, 2000);
-    return () => clearInterval(t);
-  }, [pausado]);
-
-  // ── Métricas clave: de /api/metricas con la API; si no, calculadas sobre los datos del prototipo.
-  const movs = Object.values(cuentas).flatMap((c) => c.movimientos);
-  const k = met
-    ? { vendidos: met.vendidos_hoy, ingresos: met.ingresos_hoy, retenidos: met.asientos_retenidos, trivia: met.creditos_trivia, canje: met.creditos_canjeados, cuentas: met.cuentas }
-    : {
-        vendidos: filas.reduce((a, r) => a + r.vendidos, 0),
-        ingresos: filas.reduce((a, r) => a + r.ingresos, 0),
-        retenidos: funciones.reduce((a, f) => a + ocupacion(f.id).retenidos.size, 0),
-        trivia: movs.filter((x) => x.tipo === "recarga" && x.ref.startsWith("Trivia")).reduce((a, x) => a + x.monto, 0),
-        canje: -movs.filter((x) => x.tipo === "retención").reduce((a, x) => a + x.monto, 0),
-        cuentas: Object.keys(cuentas).length,
-      };
+  // ── Métricas clave: GET /api/metricas (PostgreSQL y Redis), actualizadas cada 5 s.
+  const k = { vendidos: met?.vendidos_hoy ?? 0, ingresos: met?.ingresos_hoy ?? 0, retenidos: met?.asientos_retenidos ?? 0, trivia: met?.creditos_trivia ?? 0, canje: met?.creditos_canjeados ?? 0, cuentas: met?.cuentas ?? 0 };
+  const num = (n: number) => (met ? n.toLocaleString("es-GT") : "—");
   const enCola = met ? Object.values(met.colas).reduce((a, n) => a + n, 0) : 0;
   const aforoTotal = SALAS.reduce((a, s) => a + s.aforo, 0);
-  const fuente = met ? "API en vivo · se actualiza cada 5 s" : modoApi === "verificando" ? "Conectando con la API…" : "Datos del prototipo (sin API)";
+  const fuente = met ? "Se actualiza cada 5 s" : "Cargando métricas…";
 
   // ── Usuarios & roles
   const lista = Object.entries(cuentas);
@@ -74,23 +43,22 @@ export function General({ ir }: { ir: (seccion: IdSeccion) => void }) {
   const recientes = [...lista].sort((a, b) => b[1].creado.localeCompare(a[1].creado)).slice(0, 4);
 
   const proximas = filas.filter((r) => new Date(r.f.inicio) > new Date()).sort((a, b) => a.f.inicio.localeCompare(b.f.inicio)).slice(0, 6);
-  const max = Math.max(...serie, 1);
 
   return (
     <div className="space-y-6">
       {/* 1 · Métricas clave */}
       <Caja icono={LayoutDashboard} titulo="Métricas clave" sub={fuente}>
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Kpi titulo={met ? "Boletos vendidos hoy (en línea)" : "Boletos vendidos"} valor={k.vendidos.toLocaleString("es-GT")} detalle={met ? `${enCola} clientes en cola virtual` : `Ritmo simulado: ${serie[serie.length - 1]}/min`}>
-            <Sparkline datos={serie} />
-          </Kpi>
-          <Kpi titulo={met ? "Ingresos de hoy" : "Ingresos"} valor={k.ingresos.toLocaleString("es-GT")} sufijo="créditos" detalle={met ? "Débitos confirmados en PostgreSQL" : "Boletos vendidos × precio"}>
+          <Kpi titulo="Boletos vendidos hoy" valor={num(k.vendidos)} detalle={`${enCola} ${enCola === 1 ? "cliente" : "clientes"} en cola virtual`}>
             <Barra pct={(k.vendidos / Math.max(aforoTotal, 1)) * 100} />
           </Kpi>
-          <Kpi titulo="Asientos retenidos (Redis TTL)" valor={String(k.retenidos)} detalle="Se liberan solos a los 5 min">
+          <Kpi titulo="Ingresos de hoy" valor={num(k.ingresos)} sufijo="créditos" detalle="Pagos confirmados">
+            <Barra pct={(k.vendidos / Math.max(aforoTotal, 1)) * 100} />
+          </Kpi>
+          <Kpi titulo="Asientos retenidos" valor={num(k.retenidos)} detalle="Se liberan solos a los 5 min">
             <Barra pct={(k.retenidos / aforoTotal) * 100} />
           </Kpi>
-          <Kpi titulo="Créditos trivia vs. canje" valor={k.trivia.toLocaleString("es-GT")} sufijo={`/ ${k.canje.toLocaleString("es-GT")} canjeados`} detalle={`${k.cuentas} cuentas registradas`}>
+          <Kpi titulo="Créditos trivia vs. canje" valor={num(k.trivia)} sufijo={`/ ${num(k.canje)} canjeados`} detalle={`${num(k.cuentas)} cuentas registradas`}>
             <Barra pct={k.canje ? Math.min(100, (k.trivia / Math.max(k.canje, 1)) * 100) : 0} />
           </Kpi>
         </div>
@@ -278,68 +246,9 @@ export function General({ ir }: { ir: (seccion: IdSeccion) => void }) {
         </div>
       </Caja>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
-        {/* Gráfica de una sola serie: reservas confirmadas por minuto */}
-        <Caja icono={BarChart3} titulo="Reservas confirmadas por minuto" sub="Simulación · últimos 12 minutos, cada 2 s" accion={<span className="badge-borde">En vivo: {serie[serie.length - 1]}/min</span>}>
-          <div className="relative h-56" onMouseLeave={() => setSobre(null)}>
-            {[0.25, 0.5, 0.75, 1].map((g) => (
-              <div key={g} className="absolute inset-x-0 border-t border-borde/50" style={{ bottom: `${g * 100}%` }}>
-                <span className="absolute -top-2 right-0 bg-panel pl-1 text-[9px] text-apagado">{Math.round(max * g)}</span>
-              </div>
-            ))}
-            <div className="absolute inset-0 flex items-end gap-[2px] pr-6">
-              {serie.map((v, i) => (
-                <div key={i} className="relative flex h-full flex-1 items-end" onMouseEnter={() => setSobre(i)}>
-                  {/* scaleY en vez de height: la barra crece en el compositor sin recalcular el layout */}
-                  <div
-                    className={`h-full w-full origin-bottom rounded-t-[4px] bg-[#c8372d] transition-[transform,opacity] duration-500 ${sobre !== null && sobre !== i ? "opacity-50" : ""}`}
-                    style={{ transform: `scaleY(${v / max})` }}
-                  />
-                  {sobre === i && (
-                    <div
-                      className="pointer-events-none absolute left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-borde bg-fondo px-2 py-1 text-[11px] shadow-lg"
-                      style={{ bottom: `calc(${(v / max) * 100}% + 8px)` }}
-                    >
-                      <b>{v}</b> <span className="text-tenue">reservas · hace {serie.length - 1 - i} min</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="mt-2 flex justify-between pr-6 text-[9px] text-apagado">
-            <span>−11 min</span>
-            <span>ahora</span>
-          </div>
-        </Caja>
-
-        {/* Eventos en vivo */}
-        <Caja icono={Activity} titulo="Eventos en vivo" sub="Simulación de locks, tokens y pagos">
-          <div className="h-56 space-y-1.5 overflow-hidden rounded-md border border-borde bg-fondo p-3 text-[11px] leading-relaxed">
-            {log.length === 0 && <p className="text-apagado">Esperando eventos…</p>}
-            {log.map((l, i) => (
-              <m.p key={l + i} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className={`truncate ${l.includes("Anti-bot") ? "text-salmon" : "text-tinta/85"}`}>
-                {l}
-              </m.p>
-            ))}
-          </div>
-          <div className="mt-3 flex justify-between text-[10px] font-bold uppercase tracking-[0.12em] text-tenue">
-            <span>Buffer: {log.length} líneas</span>
-            <button onClick={() => setPausado(!pausado)} className="flex items-center gap-1.5 text-salmon hover:text-white">
-              {pausado ? <Play aria-hidden className="h-3 w-3" /> : <Pause aria-hidden className="h-3 w-3" />}
-              {pausado ? "Reanudar stream" : "Pausar stream"}
-            </button>
-          </div>
-        </Caja>
-      </div>
       <Modal abierto={!!mapa} onCerrar={() => setMapa(null)} titulo="Mapa de la sala · solo lectura" ancho="max-w-3xl">
         {mapa && <MapaSoloLectura f={mapa} />}
       </Modal>
-      <p className="text-[11px] text-apagado">
-        {met
-          ? "Métricas clave, ocupación y ventas vienen de /api/metricas. El ritmo por minuto y el flujo de eventos son una simulación visual."
-          : "Sin API: ocupación, ventas y créditos se calculan con los datos del prototipo; ritmo y eventos en vivo son simulados."}
-      </p>
     </div>
   );
 }

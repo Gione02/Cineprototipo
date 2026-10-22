@@ -12,16 +12,19 @@ type CuentasClientes struct {
 	cuentas   Cuentas
 	ventas    Ventas
 	auditoria Auditoria
+	guardia   GuardiaAntiBots
 }
 
 // NuevoCuentas crea el servicio.
-func NuevoCuentas(c Cuentas, v Ventas, a Auditoria) *CuentasClientes {
-	return &CuentasClientes{cuentas: c, ventas: v, auditoria: a}
+func NuevoCuentas(c Cuentas, v Ventas, a Auditoria, g GuardiaAntiBots) *CuentasClientes {
+	return &CuentasClientes{cuentas: c, ventas: v, auditoria: a, guardia: g}
 }
 
 // Sesion vincula al cliente que inició sesión en el frontend con su cuenta en PostgreSQL
 // (la crea con el bono de bienvenida). Pendiente: autenticación real con JWT + bcrypt.
-func (s *CuentasClientes) Sesion(ctx context.Context, correo, nombre string) (int64, int, error) {
+// Crear una cuenta regala créditos, por eso exige el pase de reCAPTCHA: sin él un bot podría llamar
+// directamente a esta ruta y fabricar cuentas. Vincular una cuenta existente no lo necesita (p. ej. al recargar la página).
+func (s *CuentasClientes) Sesion(ctx context.Context, correo, nombre, pase string) (int64, int, error) {
 	correo = domain.NormalizarCorreo(correo)
 	if err := domain.ValidarCorreo(correo); err != nil {
 		return 0, 0, err
@@ -29,6 +32,15 @@ func (s *CuentasClientes) Sesion(ctx context.Context, correo, nombre string) (in
 	nombre = domain.NormalizarNombre(nombre)
 	if err := domain.ValidarNombre(nombre); err != nil {
 		return 0, 0, err
+	}
+	existe, err := s.cuentas.ExisteCliente(ctx, correo)
+	if err != nil {
+		return 0, 0, err
+	}
+	if !existe {
+		if err := s.guardia.ExigirPase(ctx, pase, "alta de cuenta"); err != nil {
+			return 0, 0, err
+		}
 	}
 	return s.cuentas.VincularCliente(ctx, correo, nombre)
 }

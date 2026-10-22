@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { m } from "framer-motion";
 import { Clock, Info, Play, Users } from "lucide-react";
-import { EVENTOS, pelicula, sala } from "@/data/catalogo";
+import { EVENTOS, funcionDelEvento, pelicula, sala } from "@/data/catalogo";
 import { fmtDuracion, fmtHora } from "@/utils/formato";
 import { useApp } from "@/store/AppProvider";
 import { posterSinOptimizar } from "@/utils/imagen";
@@ -12,14 +12,15 @@ import { Poster } from "@/components/ui/Poster";
 import { Boton, BotonEnlace } from "@/components/ui/Boton";
 import { ModalTrailer } from "@/components/pelicula/Trailer";
 
-/** Portada: preestreno de alta demanda con cola virtual. */
+/** Portada: preestreno de alta demanda con cola virtual. No se muestra si no hay ninguno por delante. */
 export function Destacado() {
   const evento = EVENTOS[0];
   const { funciones } = useApp();
-  const f = funciones.find((x) => x.id === evento.funcionId)!;
+  const [trailer, setTrailer] = useState(false);
+  const f = funcionDelEvento(funciones, evento.id);
+  if (!f) return null;
   const p = pelicula(f.peliculaId);
   const s = sala(f.salaId);
-  const [trailer, setTrailer] = useState(false);
 
   return (
     <section className="a-sangre relative -mt-6 overflow-hidden border-b border-borde py-10 sm:-mt-8 sm:py-14">

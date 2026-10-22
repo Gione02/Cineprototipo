@@ -2,9 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, m } from "framer-motion";
-import { Check, ChevronDown, Circle, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
-import { CLAVE_DEMO, ROL_TXT, USUARIOS_DEMO } from "@/data/catalogo";
+import { Check, Circle, Eye, EyeOff, LogIn, UserPlus } from "lucide-react";
 import { PARAMETROS } from "@/data/parametros";
 import type { Rol } from "@/types/catalogo";
 import { useApp } from "@/store/AppProvider";
@@ -50,7 +48,7 @@ export function LoginModal() {
  */
 function Contenido({ modoInicial }: { modoInicial: "login" | "registro" }) {
   const router = useRouter();
-  const { login, toast, cuentas, iniciarSesion, registrarCliente, cerrarLogin, registrar } = useApp();
+  const { toast, cuentas, iniciarSesion, registrarCliente, cerrarLogin, registrar } = useApp();
   const { verificar } = useRecaptcha();
   const [modo, setModo] = useState(modoInicial);
   const [nombre, setNombre] = useState("");
@@ -60,7 +58,6 @@ function Contenido({ modoInicial }: { modoInicial: "login" | "registro" }) {
   const [error, setError] = useState("");
   const [fallos, setFallos] = useState(0);
   const [verificando, setVerificando] = useState(false);
-  const [verDemos, setVerDemos] = useState(false);
   const [verClave, setVerClave] = useState(false);
   // Un campo muestra su error después de salir de él (o al intentar enviar), no mientras se escribe por primera vez.
   const [tocados, setTocados] = useState<Partial<Record<CampoForm, boolean>>>({});
@@ -134,18 +131,6 @@ function Contenido({ modoInicial }: { modoInicial: "login" | "registro" }) {
       return setError(`${r.error} Intentos restantes: ${Math.max(0, PARAMETROS.intentosFallidos - fallos - 1)}.`);
     }
     terminar(cuentas[c].rol, cuentas[c].nombre);
-  };
-
-  const entrarDemo = async (d: (typeof USUARIOS_DEMO)[number]) => {
-    if (verificando) return;
-    setError("");
-    if (cuentas[d.correo]?.activo === false) return setError("Esa cuenta fue dada de baja por un administrador.");
-    setVerificando(true);
-    const bot = await antiBot("login");
-    setVerificando(false);
-    if (bot) return setError(bot);
-    login({ nombre: d.nombre, correo: d.correo, rol: d.rol });
-    terminar(cuentas[d.correo]?.rol ?? d.rol, d.nombre);
   };
 
   return (
@@ -246,39 +231,7 @@ function Contenido({ modoInicial }: { modoInicial: "login" | "registro" }) {
         {verificando ? "Verificando…" : modo === "login" ? "Entrar" : "Crear cuenta"}
       </Boton>
       <AvisoRecaptcha />
-      <p className="text-[11px] text-apagado">
-        {modo === "registro" ? `Cada cuenta nueva recibe ${PARAMETROS.bonoBienvenida} créditos propios de bienvenida. ` : ""}
-        Demo: las cuentas de prueba usan <code className="text-tinta">{CLAVE_DEMO}</code>.
-      </p>
-
-      <div className="border-t border-borde pt-3">
-        <button type="button" onClick={() => setVerDemos(!verDemos)} aria-expanded={verDemos} className="etiqueta flex w-full items-center justify-between text-oro">
-          Accesos de demostración <ChevronDown aria-hidden className={`h-4 w-4 transition-transform ${verDemos ? "rotate-180" : ""}`} />
-        </button>
-        <AnimatePresence initial={false}>
-          {verDemos && (
-            <m.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="mt-2 space-y-1.5">
-              {USUARIOS_DEMO.map((d) => {
-                const rol = cuentas[d.correo]?.rol ?? d.rol;
-                return (
-                  <button
-                    type="button"
-                    key={d.correo}
-                    disabled={verificando}
-                    onClick={() => entrarDemo(d)}
-                    className="flex w-full items-center justify-between gap-2 rounded-md border border-borde bg-fondo px-3 py-2 text-left text-xs transition-colors hover:border-arena disabled:opacity-40"
-                  >
-                    <span>
-                      <b>{d.nombre}</b> <span className="text-tenue">· {d.desc}</span>
-                    </span>
-                    <span className={rol === "cliente" ? "badge-borde" : "badge-vino"}>{ROL_TXT[rol].split(" ")[0]}</span>
-                  </button>
-                );
-              })}
-            </m.div>
-          )}
-        </AnimatePresence>
-      </div>
+      {modo === "registro" && <p className="text-[11px] text-apagado">Cada cuenta nueva recibe {PARAMETROS.bonoBienvenida} créditos de bienvenida.</p>}
     </form>
   );
 }

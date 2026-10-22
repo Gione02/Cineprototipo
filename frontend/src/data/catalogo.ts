@@ -1,20 +1,19 @@
-// Catálogo de demostración (modo prototipo): películas, salas, programación base, trivia y usuarios de prueba.
-// Con la API conectada, la programación y la ocupación vienen de Go / PostgreSQL.
+// Catálogo de la cartelera: películas, salas, eventos de preestreno y trivia.
+// La programación de funciones y la ocupación de las butacas vienen de la API (PostgreSQL y Redis).
 
 import { PARAMETROS } from "./parametros";
 import type { Categoria, EstrenoConCola, Funcion, Pelicula, Pregunta, Rol, Sala } from "@/types/catalogo";
 
-// Usuarios de demostración (se crean al iniciar el prototipo). En producción viven en la tabla usuarios con contraseña bcrypt.
-export const USUARIOS_DEMO: { rol: Rol; nombre: string; correo: string; desc: string }[] = [
-  { rol: "cliente", nombre: "Ana López", correo: "ana.lopez@correo.com", desc: "Compra, Mis Entradas, trivia" },
-  { rol: "cliente", nombre: "Luis Pérez", correo: "luis.perez@correo.com", desc: "Otro cliente: créditos y boletos propios" },
-  { rol: "agente", nombre: "Carlos Agente", correo: "agente@cineight.gt", desc: "Funciones, inventario, validar acceso" },
-  { rol: "admin", nombre: "Admin Sistema", correo: "admin@cineight.gt", desc: "Métricas, gestión de usuarios, parámetros" },
-  { rol: "auditor", nombre: "Laura Auditora", correo: "auditor@cineight.gt", desc: "Bitácora y reportes (solo lectura)" },
+// Cuentas del personal que existen desde la primera visita (los clientes se registran solos).
+// El administrador crea, edita o da de baja las demás desde Panel → Usuarios & roles.
+export const PERSONAL_INICIAL: { rol: Rol; nombre: string; correo: string }[] = [
+  { rol: "admin", nombre: "Admin Sistema", correo: "admin@cineight.gt" },
+  { rol: "agente", nombre: "Carlos Agente", correo: "agente@cineight.gt" },
+  { rol: "auditor", nombre: "Laura Auditora", correo: "auditor@cineight.gt" },
 ];
 
-// Contraseña de los usuarios de demostración (sólo prototipo).
-export const CLAVE_DEMO = "cineight123";
+// Contraseña inicial del personal. Pendiente: autenticación en el servidor (JWT + bcrypt), que permitirá cambiarla.
+export const CLAVE_INICIAL = "cineight123";
 
 export const ROL_TXT: Record<Rol, string> = { cliente: "Cliente", agente: "Agente Operativo", admin: "Administrador del Sistema", auditor: "Auditor" };
 
@@ -522,98 +521,18 @@ export const CATEGORIAS: { id: Categoria; titulo: string; sub: string }[] = [
   { id: "proximamente", titulo: "Próximamente", sub: "Apertura de taquilla programada" },
 ];
 
-// ───────── Programación ─────────
-//
-// Cada película se proyecta en dos salas. Cada sala alterna dos películas desde su primera función (10:00 en las
-// salas 1–8 y 11:30 en las 9–16, así los horarios se intercalan); la siguiente función empieza al terminar la anterior más
-// 20 min de limpieza (RF-31), redondeado al cuarto de hora, mientras el inicio no pase de las 22:00.
-// Los días impares se invierte el orden, así cada película tiene horarios de mañana, tarde y noche.
-// db/init.sql genera exactamente la misma tabla (mismos códigos f1, f2…), para que frontend y API coincidan.
-
-export const DIAS_PROGRAMADOS = 4;
-export const PRIMERA_FUNCION_MIN = 10 * 60; // 10:00
+// Último inicio permitido de una función. La programación la genera la API (backend/internal/domain/programacion.go).
 export const ULTIMA_FUNCION_MIN = 22 * 60; // 22:00
 
-const SEGUNDO_TURNO_MIN = 11 * 60 + 30; // 11:30
+export const EVENTOS: EstrenoConCola[] = [{ id: "e1", nombre: "Duna: Parte Dos — Preestreno IMAX", limitePorCliente: 2 }];
 
-// sala → [película A, película B], formato, precio base en créditos y minuto de la primera función
-export const PROGRAMACION: { salaId: string; peliculas: [string, string]; formato: string; precio: number; desde?: number }[] = [
-  { salaId: "s1", peliculas: ["dune-2", "top-gun-maverick"], formato: "IMAX Láser", precio: 70 },
-  { salaId: "s2", peliculas: ["the-batman", "furiosa"], formato: "Dolby Atmos", precio: 60 },
-  { salaId: "s3", peliculas: ["gladiador", "whiplash"], formato: "2D", precio: 50 },
-  { salaId: "s4", peliculas: ["avatar-agua", "planeta-simios"], formato: "4DX 3D", precio: 75 },
-  { salaId: "s5", peliculas: ["deadpool-wolverine", "alien-romulus"], formato: "Dolby Atmos", precio: 60 },
-  { salaId: "s6", peliculas: ["dark-knight", "todo-en-todas-partes"], formato: "2D", precio: 50 },
-  { salaId: "s7", peliculas: ["oppenheimer", "civil-war"], formato: "2D VIP", precio: 80 },
-  { salaId: "s8", peliculas: ["intensa-mente-2", "matrix"], formato: "2D", precio: 50 },
-  { salaId: "s9", peliculas: ["top-gun-maverick", "oppenheimer"], formato: "IMAX Láser", precio: 70, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s10", peliculas: ["furiosa", "dune-2"], formato: "Dolby Atmos", precio: 60, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s11", peliculas: ["whiplash", "deadpool-wolverine"], formato: "2D", precio: 50, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s12", peliculas: ["planeta-simios", "the-batman"], formato: "Dolby Atmos", precio: 60, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s13", peliculas: ["alien-romulus", "gladiador"], formato: "2D", precio: 50, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s14", peliculas: ["todo-en-todas-partes", "intensa-mente-2"], formato: "2D", precio: 50, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s15", peliculas: ["civil-war", "dark-knight"], formato: "2D VIP", precio: 80, desde: SEGUNDO_TURNO_MIN },
-  { salaId: "s16", peliculas: ["avatar-agua", "matrix"], formato: "4DX 3D", precio: 75, desde: SEGUNDO_TURNO_MIN },
-];
-
-const DOBLADAS = new Set(["intensa-mente-2", "avatar-agua"]);
-const DESCUENTO_MATINE = 10; // funciones antes de las 13:00
-const PRECIO_PREESTRENO = 80;
-
-/** Preestreno con cola virtual: la última función de «Duna: Parte Dos» de mañana (día 1) en la Sala 1 IMAX. */
-const PELICULA_EVENTO = "dune-2";
-const SALA_EVENTO = "s1";
-const DIA_EVENTO = 1;
-
-const ceil15 = (min: number) => Math.ceil(min / 15) * 15;
-
-function inicioLocal(dia: number, minuto: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + dia);
-  d.setHours(0, minuto, 0, 0);
-  return d.toISOString();
+/**
+ * Próxima función de un preestreno dentro de la cartelera vigente (la de la API o la generada en el navegador).
+ * undefined si no queda ninguna por delante.
+ */
+export function funcionDelEvento(funciones: Funcion[], eventoId: string, ahora = new Date()): Funcion | undefined {
+  return funciones.filter((f) => f.eventoId === eventoId && new Date(f.inicio) > ahora).sort((a, b) => a.inicio.localeCompare(b.inicio))[0];
 }
-
-// Se calcula al primer uso (en el navegador) para que las fechas sean relativas a hoy.
-let _funciones: Funcion[] | null = null;
-export function funcionesBase(): Funcion[] {
-  if (_funciones) return _funciones;
-  const filas: Funcion[] = [];
-  let evento: { indice: number; minuto: number } | null = null;
-  for (let dia = 0; dia < DIAS_PROGRAMADOS; dia++)
-    for (const { salaId, peliculas, formato, precio, desde = PRIMERA_FUNCION_MIN } of PROGRAMACION) {
-      let minuto = desde;
-      for (let n = 0; minuto <= ULTIMA_FUNCION_MIN; n++) {
-        const peliculaId = peliculas[(dia + n) % 2];
-        if (peliculaId === PELICULA_EVENTO && salaId === SALA_EVENTO && dia === DIA_EVENTO && minuto >= (evento?.minuto ?? -1)) evento = { indice: filas.length, minuto };
-        filas.push({
-          id: `f${filas.length + 1}`,
-          peliculaId,
-          salaId,
-          inicio: inicioLocal(dia, minuto),
-          formato,
-          idioma: DOBLADAS.has(peliculaId) ? "Español" : "Subtitulada",
-          precio: precio - (minuto < 13 * 60 ? DESCUENTO_MATINE : 0),
-        });
-        minuto = ceil15(minuto + pelicula(peliculaId).duracion + PARAMETROS.limpiezaMinutos);
-      }
-    }
-  if (evento) filas[evento.indice] = { ...filas[evento.indice], precio: PRECIO_PREESTRENO, eventoId: "e1" };
-  _funciones = filas;
-  return _funciones;
-}
-
-export const EVENTOS: EstrenoConCola[] = [
-  {
-    id: "e1",
-    nombre: "Duna: Parte Dos — Preestreno IMAX",
-    limitePorCliente: 2,
-    // La función del preestreno sale de la programación generada.
-    get funcionId() {
-      return funcionesBase().find((f) => f.eventoId === "e1")!.id;
-    },
-  },
-];
 
 // Preguntas basadas en los datos curiosos de las películas de la cartelera.
 export const PREGUNTAS: Pregunta[] = [
@@ -644,7 +563,7 @@ export const PREGUNTAS: Pregunta[] = [
 ];
 
 // Películas creadas desde el panel (API o navegador). El store las registra antes de pintar,
-// así pelicula(id) y finFuncion() funcionan igual para las de demostración y las nuevas.
+// así pelicula(id) y finFuncion() funcionan igual para las del catálogo base y las nuevas.
 let extras: Pelicula[] = [];
 export function registrarPeliculas(lista: Pelicula[]) {
   extras = lista;
@@ -670,33 +589,8 @@ export function finFuncion(f: Funcion) {
   return new Date(new Date(f.inicio).getTime() + (p.duracion + PARAMETROS.limpiezaMinutos) * 60000);
 }
 
-// Generador determinista para simular ocupación de otros compradores
-function semilla(str: string) {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), 16777619);
-  return () => {
-    h = Math.imul(h ^ (h >>> 15), 2246822507);
-    h = Math.imul(h ^ (h >>> 13), 3266489909);
-    return ((h ^= h >>> 16) >>> 0) / 4294967296;
-  };
-}
 
 export const FILAS = "ABCDEFGHIJKLMNOP";
 export const etiqueta = (fila: number, col: number) => `${FILAS[fila]}-${String(col + 1).padStart(2, "0")}`;
 
-export function ocupacionSimulada(funcionId: string) {
-  const r = semilla(funcionId);
-  const vendidos = new Set<string>();
-  const retenidos = new Set<string>();
-  const f = funcionesBase().find((x) => x.id === funcionId);
-  const s = sala(f?.salaId ?? "s1");
-  const tasa = f?.eventoId ? 0.55 : 0.28;
-  for (let fi = 0; fi < s.filas; fi++)
-    for (let c = 0; c < s.columnas; c++) {
-      const x = r();
-      if (x < tasa) vendidos.add(etiqueta(fi, c));
-      else if (x < tasa + 0.06) retenidos.add(etiqueta(fi, c));
-    }
-  return { vendidos, retenidos };
-}
 

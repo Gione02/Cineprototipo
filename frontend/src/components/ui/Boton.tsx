@@ -12,7 +12,7 @@ export type Variante = "vino" | "borde" | "oro" | "fantasma";
 export type Tamano = "sm" | "md" | "lg";
 
 const VARIANTE: Record<Variante, string> = { vino: "btn-vino", borde: "btn-borde", oro: "btn-oro", fantasma: "btn-fantasma" };
-const TAMANO: Record<Tamano, string> = { sm: "!px-3 !py-2 !text-[10px]", md: "", lg: "!py-3.5" };
+const TAMANO: Record<Tamano, string> = { sm: "!px-3 !py-2 !text-xs", md: "", lg: "!py-3.5 !text-sm" };
 const ICONO: Record<Tamano, string> = { sm: "h-3.5 w-3.5", md: "h-4 w-4", lg: "h-4 w-4" };
 
 const resorte: Transition = { type: "spring", stiffness: 500, damping: 30 };

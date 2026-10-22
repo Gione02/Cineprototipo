@@ -9,7 +9,7 @@ import type { MetricasApi } from "@/types/api";
 
 // Datos compartidos por las secciones del panel de operaciones.
 
-// GET /api/metricas cada 5 s cuando la API está conectada (null en modo demostración).
+// GET /api/metricas cada 5 s (null mientras llega la primera respuesta).
 export function useMetricas() {
   const { modoApi } = useApp();
   const [met, setMet] = useState<MetricasApi | null>(null);
@@ -49,7 +49,7 @@ export function useOcupacionVigente() {
 
 export type FilaVenta = { f: Funcion; vendidos: number; cap: number; ingresos: number };
 
-// Ventas por función: de /api/metricas si hay conexión; si no, de la ocupación simulada.
+// Ventas por función: de /api/metricas; mientras llegan, de la ocupación ya cargada.
 export function useFilasVentas(met: MetricasApi | null): FilaVenta[] {
   const { funciones, ocupacion } = useApp();
   if (met) {

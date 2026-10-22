@@ -90,14 +90,20 @@ type Ocupacion struct {
 	Propios   []string `json:"propios,omitempty"` // bloqueos del usuario que consulta (?usuario=)
 }
 
-// Boleto emitido tras un pago.
+// Boleto emitido tras un pago. Incluye los datos de su función para mostrarlo aunque la función ya
+// haya terminado (GET /api/funciones sólo lista las vigentes).
 type Boleto struct {
-	Token   string    `json:"token"`
-	Funcion string    `json:"funcion"`
-	Asiento string    `json:"asiento"`
-	Precio  int       `json:"precio"`
-	Estado  string    `json:"estado"`
-	Fecha   time.Time `json:"fecha"`
+	Token    string    `json:"token"`
+	Funcion  string    `json:"funcion"`
+	Asiento  string    `json:"asiento"`
+	Precio   int       `json:"precio"`
+	Estado   string    `json:"estado"`
+	Fecha    time.Time `json:"fecha"`
+	Pelicula string    `json:"pelicula"`
+	Sala     string    `json:"sala"`
+	Inicio   time.Time `json:"inicio"`
+	Formato  string    `json:"formato"`
+	Idioma   string    `json:"idioma"`
 }
 
 // Movimiento de la cuenta de créditos.
@@ -140,12 +146,23 @@ type Validacion struct {
 	Titular string  `json:"titular,omitempty"`
 }
 
-// PosicionCola en la cola virtual de un preestreno.
+// EstadoCola es la situación de un usuario en la cola virtual según Redis.
+type EstadoCola struct {
+	Turno    bool      // tiene turno vigente
+	Vence    time.Time // fin del turno
+	EnFila   bool      // está esperando
+	Posicion int64     // 1 = el siguiente en pasar
+	EnCola   int64     // cuántos esperan en total
+}
+
+// PosicionCola en la cola virtual de un preestreno (respuesta de la API).
 type PosicionCola struct {
-	Posicion        int64 `json:"posicion"`
-	EnCola          int64 `json:"en_cola"`
-	TurnoHabilitado bool  `json:"turno_habilitado"`
-	EsperaMin       int   `json:"espera_min"`
+	Posicion        int64      `json:"posicion"`
+	EnCola          int64      `json:"en_cola"`
+	TurnoHabilitado bool       `json:"turno_habilitado"`
+	EsperaMin       int        `json:"espera_min"`
+	Expira          *time.Time `json:"expira,omitempty"` // fin del turno, si lo tiene
+	Capacidad       int64      `json:"capacidad"`        // clientes atendidos a la vez
 }
 
 // OcupacionFuncion resume la venta de una función para el panel de métricas.
@@ -166,6 +183,31 @@ type Metricas struct {
 	CreditosCanjeados int                `json:"creditos_canjeados"`
 	Cuentas           int                `json:"cuentas"`
 	Funciones         []OcupacionFuncion `json:"funciones"`
+}
+
+// ConsumoPelicula resume lo que un cliente compró de una película. Género, director y reparto sólo
+// vienen llenos en las películas creadas desde el panel; los de la cartelera de demostración los completa el frontend.
+type ConsumoPelicula struct {
+	Pelicula  string    `json:"pelicula"` // slug
+	Titulo    string    `json:"titulo"`
+	Genero    string    `json:"genero"`
+	Director  string    `json:"director"`
+	Reparto   []string  `json:"reparto"`
+	Boletos   int       `json:"boletos"`
+	Funciones int       `json:"funciones"` // visitas: funciones distintas a las que asistió
+	Gastado   int       `json:"gastado"`
+	Ultima    time.Time `json:"ultima"`
+}
+
+// HistorialCliente agrupa las compras de un cliente por película (panel de estadísticas de clientes).
+type HistorialCliente struct {
+	ID        int64             `json:"id"`
+	Nombre    string            `json:"nombre"`
+	Correo    string            `json:"correo"`
+	Activo    bool              `json:"activo"`
+	Creado    time.Time         `json:"creado"`
+	Saldo     int               `json:"saldo"`
+	Peliculas []ConsumoPelicula `json:"peliculas"`
 }
 
 // TipoEventoAsiento describe un cambio de estado de butacas que se difunde en tiempo real.

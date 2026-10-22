@@ -8,7 +8,7 @@ import { CalendarRange, CircleCheck, Clock, CreditCard, Gamepad2, Gem, ListX, Lo
 import { pelicula, sala, finFuncion } from "@/data/catalogo";
 import { PARAMETROS } from "@/data/parametros";
 import { fmtDuracion, fmtFechaLarga, fmtHora } from "@/utils/formato";
-import { turnoVigente } from "@/utils/turnoCola";
+import { quitarTurno, turnoVigente } from "@/utils/turnoCola";
 import { useApp } from "@/store/AppProvider";
 import type { Boleto } from "@/types/cuenta";
 import type { EventoAsientosApi } from "@/types/api";
@@ -19,7 +19,7 @@ import { BotonVolver } from "@/components/ui/BotonVolver";
 import { Boton, BotonEnlace } from "@/components/ui/Boton";
 import { GrupoBoletos } from "@/components/boletos/Boleto";
 import { MapaButacas, type EstadoButaca } from "@/components/funcion/MapaButacas";
-import { CuentaReserva, DesgloseTotal, Paso, Reloj } from "@/components/funcion/PiezasCompra";
+import { CuentaReserva, DesgloseTotal, PasosCompra, Reloj } from "@/components/funcion/PiezasCompra";
 
 type Alerta = { titulo: string; texto: string };
 
@@ -50,6 +50,8 @@ export default function PaginaFuncion() {
   const selRef = useRef(sel);
   const pendientesRef = useRef(pendientes);
   const bloqueadoEn = useRef(new Map<string, number>());
+  // Butaca que tocó un visitante sin sesión: se aparta en cuanto inicia sesión.
+  const butacaPendiente = useRef<string | null>(null);
   useLayoutEffect(() => {
     appRef.current = app;
     selRef.current = sel;
@@ -59,7 +61,7 @@ export default function PaginaFuncion() {
   const fid = f?.id;
   const limite = f?.eventoId ? PARAMETROS.maxBoletosPorEvento : PARAMETROS.maxButacasPorTransaccion;
 
-  // Sin API: carga inicial de la ocupación simulada. Con API la trae el stream SSE.
+  // Foto inicial de la ocupación; después la mantiene al día el stream SSE.
   useEffect(() => {
     if (fid) cargarOcupacion([fid]);
   }, [fid, cargarOcupacion]);
@@ -118,7 +120,8 @@ export default function PaginaFuncion() {
       const limite = fn.eventoId ? PARAMETROS.maxBoletosPorEvento : PARAMETROS.maxButacasPorTransaccion;
       if (ctx.reserva?.funcionId === fid) return setCheckout(true);
       if (!ctx.usuario) {
-        ctx.toast("Inicia sesión para elegir butacas: se bloquean a tu nombre durante 5 minutos.", "info");
+        butacaPendiente.current = a;
+        ctx.toast(`Inicia sesión y apartaremos la butaca ${a} a tu nombre durante ${PARAMETROS.retencionMinutos} minutos.`, "info");
         return ctx.abrirLogin();
       }
       if (selRef.current.includes(a)) {
@@ -143,6 +146,13 @@ export default function PaginaFuncion() {
     [id, setCheckout, setAlerta],
   );
 
+  useEffect(() => {
+    const a = butacaPendiente.current;
+    if (!correo || !a) return;
+    butacaPendiente.current = null;
+    elegir(a);
+  }, [correo, elegir]);
+
   if (!f)
     return (
       <div className="flex items-center gap-4">
@@ -152,10 +162,24 @@ export default function PaginaFuncion() {
     );
   const p = pelicula(f.peliculaId);
   const s = sala(f.salaId);
+  if (new Date(f.inicio) <= new Date() && !emitidos)
+    return (
+      <div className="tarjeta mx-auto max-w-md p-8 text-center">
+        <Clock aria-hidden className="mx-auto h-10 w-10 text-arena" />
+        <p className="titulo mt-3 text-2xl">Esta función ya comenzó</p>
+        <p className="mt-2 text-sm text-tenue">
+          {p.titulo} · {fmtFechaLarga(f.inicio)} a las {fmtHora(f.inicio)}. Elige otro horario para comprar tus boletos.
+        </p>
+        <BotonEnlace href={`/pelicula/${p.id}#horarios`} icono={CalendarRange} className="mt-5">
+          Ver horarios
+        </BotonEnlace>
+      </div>
+    );
   const occ = ocupacion(f.id);
   const miReserva = reserva?.funcionId === f.id ? reserva : null;
   const asientosResumen = miReserva?.asientos ?? sel;
   const total = asientosResumen.length * f.precio;
+  const faltan = usuario?.rol === "cliente" ? Math.max(0, total - saldo) : 0;
   const sinTurno = listo && f.eventoId && !turnoVigente(f.eventoId) && !miReserva && !emitidos;
 
   const estadoDe = (a: string): EstadoButaca =>
@@ -192,11 +216,6 @@ export default function PaginaFuncion() {
     setCheckout(true);
   };
 
-  const confirmar = () => {
-    const r = app.retenerCreditos();
-    setErrorPago(r.ok ? "" : r.error!);
-  };
-
   const pagar = async () => {
     if (procesando) return;
     setProcesando(true);
@@ -205,6 +224,11 @@ export default function PaginaFuncion() {
     if (!r.ok) return setErrorPago(r.error!);
     setCheckout(false);
     setEmitidos(r.boletos!);
+    // Preestreno: la compra termina el turno y el cupo pasa al siguiente de la cola virtual.
+    if (f.eventoId) {
+      app.colaSalir(f.eventoId);
+      quitarTurno(f.eventoId);
+    }
   };
 
   // La trivia se abre encima de esta ventana: al volver, la reserva y las butacas siguen igual y el saldo ya está actualizado.
@@ -224,17 +248,15 @@ export default function PaginaFuncion() {
       {miReserva ? (
         <CuentaReserva expira={miReserva.expira} />
       ) : (
-        <div className="flex items-baseline justify-between rounded-md border border-borde bg-fondo px-3 py-2.5">
-          <span className="etiqueta flex items-center gap-1.5">
-            <Timer aria-hidden className="h-3.5 w-3.5" /> Bloqueo por butaca
-          </span>
-          <span className="text-lg font-black">{PARAMETROS.retencionMinutos}:00</span>
-        </div>
+        <p className="flex items-start gap-2 rounded-md border border-borde bg-fondo px-3 py-2.5 text-xs text-tenue">
+          <Timer aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-arena" />
+          Cada butaca que eliges queda apartada a tu nombre {PARAMETROS.retencionMinutos} minutos mientras decides.
+        </p>
       )}
       <div>
         <p className="etiqueta mb-2">{miReserva ? "Butacas retenidas a tu nombre" : "Tu selección (bloqueada para ti)"}</p>
         {asientosResumen.length === 0 ? (
-          <p className="text-xs text-tenue">Elige hasta {limite} butacas en el mapa. Cada una queda bloqueada a tu nombre mientras decides.</p>
+          <p className="text-xs text-tenue">Elige hasta {limite} butacas en el mapa.</p>
         ) : (
           <div className="flex flex-wrap gap-1.5">
             {asientosResumen.map((a) => (
@@ -258,6 +280,7 @@ export default function PaginaFuncion() {
           </span>
         )}
       </div>
+      {faltan > 0 && <AvisoSaldo faltan={faltan} onTrivia={jugarTrivia} />}
       {miReserva ? (
         <div className="grid gap-2">
           <Boton icono={CreditCard} tamano="lg" onClick={() => setCheckout(true)} className="w-full">
@@ -293,6 +316,9 @@ export default function PaginaFuncion() {
 
   return (
     <div className="pb-20 lg:pb-0">
+      <div className="mb-5">
+        <PasosCompra actual={miReserva ? 3 : 2} />
+      </div>
       {/* Encabezado de la función */}
       <div className="flex items-start justify-between gap-3 sm:gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
@@ -392,39 +418,18 @@ export default function PaginaFuncion() {
             </div>
             <DesgloseTotal asientos={miReserva.asientos} precio={f.precio} total={total} />
 
-            <ol className="grid grid-cols-2 gap-2 text-xs">
-              <Paso n={1} activo={!miReserva.creditosRetenidos} hecho={!!miReserva.creditosRetenidos} texto="Retener créditos" />
-              <Paso n={2} activo={!!miReserva.creditosRetenidos} hecho={false} texto="Confirmar pago" />
-            </ol>
+            <p className="flex items-center justify-between text-xs text-tenue">
+              <span>Tu saldo</span>
+              <span className="flex items-center gap-1 font-bold text-tinta">
+                <Gem aria-hidden className="h-3 w-3 text-oro" /> {saldo} créditos
+              </span>
+            </p>
+            {faltan > 0 && <AvisoSaldo faltan={faltan} onTrivia={jugarTrivia} />}
+            {errorPago && <div className="rounded-md border border-rojo/60 bg-vino/50 p-3 text-sm text-salmon">{errorPago}</div>}
 
-            {errorPago && (
-              <div className="rounded-md border border-rojo/60 bg-vino/50 p-3 text-sm text-salmon">
-                {errorPago}
-                {errorPago.startsWith("Saldo insuficiente") && (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-salmon/80">
-                    <span>Tu reserva sigue activa. Gana hasta {PARAMETROS.bonoTriviaPerfecta} créditos sin salir de aquí:</span>
-                    <Boton variante="oro" tamano="sm" icono={Gamepad2} onClick={jugarTrivia}>
-                      Jugar la trivia
-                    </Boton>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {miReserva.creditosRetenidos ? (
-              <>
-                <p className="rounded-md border border-oro/30 bg-oro/10 p-2 text-xs text-oro">
-                  {miReserva.creditosRetenidos} créditos retenidos. Confirma el pago antes de que termine el tiempo.
-                </p>
-                <Boton icono={CreditCard} tamano="lg" cargando={procesando} onClick={pagar} className="w-full">
-                  {procesando ? "Procesando pago…" : `Pagar ${total} créditos`}
-                </Boton>
-              </>
-            ) : (
-              <Boton icono={Gem} tamano="lg" onClick={confirmar} className="w-full">
-                Confirmar compra (saldo: {saldo})
-              </Boton>
-            )}
+            <Boton icono={CreditCard} tamano="lg" cargando={procesando} disabled={faltan > 0} onClick={pagar} className="w-full">
+              {procesando ? "Procesando pago…" : `Pagar ${total} créditos`}
+            </Boton>
             <Boton variante="borde" icono={X} onClick={() => setConfirmarCancelar(true)} className="w-full">
               Cancelar reserva
             </Boton>
@@ -435,8 +440,7 @@ export default function PaginaFuncion() {
       {/* Confirmación de cancelación */}
       <Modal abierto={confirmarCancelar} onCerrar={() => setConfirmarCancelar(false)} titulo="¿Cancelar la reserva?" z="z-[55]">
         <p className="text-sm text-tenue">
-          Las butacas {miReserva?.asientos.join(", ")} se liberarán para otros clientes
-          {miReserva?.creditosRetenidos ? ` y se devolverán ${miReserva.creditosRetenidos} créditos a tu saldo` : ""}.
+          Las butacas {miReserva?.asientos.join(", ")} se liberarán para otros clientes. No se te cobrará nada.
         </p>
         <div className="mt-5 flex gap-2">
           <Boton variante="borde" onClick={() => setConfirmarCancelar(false)} className="flex-1">
@@ -479,6 +483,20 @@ export default function PaginaFuncion() {
           </m.div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+/** Saldo insuficiente: se avisa antes de pagar y se ofrece la trivia, que se abre encima sin perder la selección. */
+function AvisoSaldo({ faltan, onTrivia }: { faltan: number; onTrivia: () => void }) {
+  return (
+    <div className="rounded-md border border-oro/30 bg-oro/10 p-3 text-xs text-oro">
+      <p>
+        Te faltan <b>{faltan} créditos</b>. Gana hasta {PARAMETROS.bonoTriviaPerfecta} en la trivia sin perder tus butacas.
+      </p>
+      <Boton variante="oro" tamano="sm" icono={Gamepad2} onClick={onTrivia} className="mt-2">
+        Jugar la trivia
+      </Boton>
     </div>
   );
 }

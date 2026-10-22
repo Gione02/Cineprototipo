@@ -1,16 +1,17 @@
 // Cliente HTTP de la API en Go (backend/cmd/api). La URL base sale de NEXT_PUBLIC_API_URL.
-// Si la variable no está definida, o la API no responde al arrancar, el prototipo sigue
-// funcionando con los datos simulados del navegador (ver `modoApi` en el store).
+// Si la variable no está definida o la API no responde, la interfaz muestra "Servicio no disponible" (ver `modoApi`).
 
 import type {
   AsientosApi,
   CaptchaApi,
   CuentaApi,
   FuncionApi,
+  HistorialClienteApi,
   NuevaFuncionApi,
   PeliculaApi,
   MetricasApi,
   PagoApi,
+  PosicionColaApi,
   ReservaApi,
   SesionApi,
   TriviaApi,
@@ -20,6 +21,8 @@ import type {
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/+$/, "");
 
 export const apiConfigurada = BASE !== "";
+/** La API corre en esta misma computadora (desarrollo): responde al instante o no está levantada. */
+export const apiLocal = /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(BASE);
 
 /** Error de la API con su código HTTP (0 = sin conexión o tiempo agotado). */
 export class ApiError extends Error {
@@ -58,7 +61,7 @@ const del = <T>(ruta: string, cuerpo?: unknown) => pedir<T>(ruta, { method: "DEL
 const seg = encodeURIComponent;
 
 export const api = {
-  salud: () => pedir<{ estado: string }>("/api/salud", {}, 2500),
+  salud: (timeoutMs = 2500) => pedir<{ estado: string }>("/api/salud", {}, timeoutMs),
 
   // Catálogo y mapa de butacas
   funciones: () => pedir<FuncionApi[]>("/api/funciones"),
@@ -90,13 +93,21 @@ export const api = {
   cancelarReserva: (reservaId: string) => del<{ estado: string }>(`/api/reservas/${seg(reservaId)}`),
 
   // Cuentas y créditos
-  sesion: (correo: string, nombre: string) => post<SesionApi>("/api/sesion", { correo, nombre }),
+  /** Vincula al cliente con su cuenta. `pase` (de verificarCaptcha) es obligatorio si la cuenta aún no existe. */
+  sesion: (correo: string, nombre: string, pase?: string) => post<SesionApi>("/api/sesion", { correo, nombre, ...(pase ? { pase } : {}) }),
   cuenta: (usuarioId: number) => pedir<CuentaApi>(`/api/usuarios/${usuarioId}/cuenta`),
   acreditarTrivia: (usuarioId: number, partida: string, aciertos: number) => post<TriviaApi>("/api/creditos/trivia", { usuario_id: usuarioId, partida, aciertos }),
+
+  // Cola virtual de preestrenos (Redis). Quien espera consulta su posición cada pocos segundos o pierde su lugar.
+  entrarCola: (evento: string, usuarioId: number, pase?: string) => post<PosicionColaApi>(`/api/cola/${seg(evento)}`, { usuario_id: usuarioId, ...(pase ? { pase } : {}) }),
+  posicionCola: (evento: string, usuarioId: number) => pedir<PosicionColaApi>(`/api/cola/${seg(evento)}/${usuarioId}`),
+  salirCola: (evento: string, usuarioId: number) => del<{ estado: string }>(`/api/cola/${seg(evento)}/${usuarioId}`),
 
   // Operación
   validarBoleto: (token: string) => post<ValidacionApi>(`/api/boletos/${seg(token)}/validar`),
   metricas: () => pedir<MetricasApi>("/api/metricas"),
+  /** Compras de cada cliente agrupadas por película (estadísticas del administrador). */
+  historialClientes: () => pedir<HistorialClienteApi[]>("/api/clientes/historial"),
 
   // Seguridad
   /** Verifica en el servidor un token de reCAPTCHA v3 antes de procesar credenciales. */

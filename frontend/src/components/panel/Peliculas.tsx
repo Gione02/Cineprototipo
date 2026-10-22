@@ -16,7 +16,7 @@ const ETIQUETA: Record<Categoria, string> = { cartelera: "En cartelera", estreno
 
 /** Catálogo del cine: el agente operativo y el administrador publican películas nuevas con sus funciones. */
 export function Peliculas() {
-  const { peliculas, funciones, modoApi } = useApp();
+  const { peliculas, funciones } = useApp();
   const [filtro, setFiltro] = useState<Categoria | "todas">("todas");
   const [busca, setBusca] = useState("");
   const [alta, setAlta] = useState(false);
@@ -50,11 +50,7 @@ export function Peliculas() {
         </div>
       </div>
 
-      <p className="text-xs text-tenue">
-        {modoApi === "conectado"
-          ? "Las películas nuevas se guardan en PostgreSQL (póster incluido) y aparecen al instante en la cartelera."
-          : "Modo demostración: las películas nuevas se guardan en este navegador."}
-      </p>
+      <p className="text-xs text-tenue">Las películas nuevas se guardan con su póster y aparecen al instante en la cartelera.</p>
 
       {lista.length === 0 ? (
         <div className="tarjeta border-dashed p-10 text-center text-sm text-tenue">

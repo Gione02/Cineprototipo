@@ -2,7 +2,7 @@
 
 import { ShieldAlert, type LucideIcon } from "lucide-react";
 
-// Piezas visuales del panel: tarjetas, cajas con encabezado, KPI y mini-gráficas.
+// Piezas visuales del panel: tarjetas, cajas con encabezado, KPI y barras de progreso.
 
 export const card = "tarjeta p-5";
 export const thCls = "etiqueta pb-3 pr-3 text-left font-bold";
@@ -46,17 +46,6 @@ export function Kpi({ titulo, valor, sufijo, detalle, alerta, children }: { titu
         <p className="mt-2 text-[11px] text-tenue">{detalle}</p>
       </div>
     </div>
-  );
-}
-
-export function Sparkline({ datos }: { datos: number[] }) {
-  const max = Math.max(...datos);
-  const min = Math.min(...datos);
-  const pts = datos.map((v, i) => `${(i / (datos.length - 1)) * 100},${30 - ((v - min) / Math.max(max - min, 1)) * 26 - 2}`).join(" ");
-  return (
-    <svg viewBox="0 0 100 30" className="h-8 w-full" preserveAspectRatio="none" aria-label="Tendencia de reservas por minuto">
-      <polyline points={pts} fill="none" stroke="#c8372d" strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
-    </svg>
   );
 }
 

@@ -8,10 +8,29 @@ Usa el stack de la Tabla 19 / Sección 3.4.3: **Next.js 16 + Tailwind CSS + Fram
 - **Butacas en tiempo real:** cada butaca elegida queda bloqueada a tu nombre 5 min (candado atómico en Redis) y los demás
   clientes la ven bloqueada al instante por **Server-Sent Events**. Si recargas la página recuperas tus propios bloqueos.
 - **reCAPTCHA v3 invisible** en inicio de sesión, registro y cola virtual, verificado por el backend antes de procesar credenciales.
+  Al aprobar el token, el backend entrega un **pase de un solo uso** (Redis, 10 min) que `POST /api/sesion` exige para crear
+  una cuenta nueva: un bot ya no puede saltarse la verificación llamando directamente a la API para fabricar cuentas con bono.
+- **Estadísticas de clientes** (Administrador → *Clientes*): historial de compras de cada cliente con películas vistas,
+  géneros, directores y actores favoritos, gasto y última compra; búsqueda, orden y exportación a CSV.
+- **Cartelera siempre vigente:** la API programa sola (al arrancar y cada hora) lo que falte de hoy y los 3 días
+  siguientes en las 16 salas, con el mismo plan que el frontend, y mantiene un preestreno por delante. Con la API
+  conectada, la cartelera del navegador es exactamente la de PostgreSQL (ya no se mezcla con la generada en el
+  navegador), y la API rechaza bloquear o reservar funciones que ya comenzaron.
+- **Resiliencia:** si Redis cae, las rutas de reservas responden `503` con `{"error": "Servicio de reservas
+  temporalmente no disponible"}` en lugar de fallar; la cartelera sigue funcionando y todo se recupera solo cuando
+  Redis vuelve. Un middleware `recover()` convierte cualquier panic en un error JSON. El contenedor de la API corre
+  con un usuario sin privilegios (`appuser`). El canal SSE se reconecta con espera exponencial (1 s → 30 s).
+- **Compra en un solo paso:** *Reservar* → *Pagar* (sin el paso intermedio de retener créditos), aviso de saldo
+  insuficiente antes de pagar, indicador de pasos y, si un visitante toca una butaca sin sesión, se le aparta al iniciarla.
 - **Catálogo editable:** el agente operativo y el administrador publican películas con póster, ficha técnica, tráiler y
   funciones desde el panel, con detección de traslapes en vivo.
-- **Programación ampliada:** 24 películas (8 en cartelera, 8 estrenos, 8 próximamente) y 16 salas; cada película tiene
-  4–5 funciones diarias entre las 10:00 y las 22:00 durante 4 días (294 funciones).
+- **Programación completa:** 24 películas (8 en cartelera, 8 estrenos, 8 próximamente) y 16 salas; cada película en
+  exhibición tiene **5 funciones diarias de 10:00 a 22:00** (la primera a las 10:00 y la última entre 21:00 y 21:30),
+  siempre para hoy y los 3 días siguientes.
+- **Sin datos de prueba:** no hay modo demostración, accesos rápidos, clientes de prueba ni butacas vendidas inventadas.
+  Todo sale de PostgreSQL y Redis; si la API no responde, el sitio lo dice y ofrece reintentar.
+- **Preestreno con cola virtual real:** *Duna: Parte Dos* en IMAX se vende por una fila en Redis por orden de llegada;
+  el servidor atiende a pocos clientes a la vez (turnos de 3 min) y rechaza elegir butacas del preestreno sin turno.
 - **Interfaz:** logotipo en la barra superior, botones con íconos y animaciones, carruseles horizontales, horarios por día,
   navegación con íconos, menú de usuario con *Cerrar sesión* (lleva a la cartelera) y panel de administración con barra
   lateral fija.
@@ -36,7 +55,7 @@ cineight/
 │       ├── hooks/            useAsientosEnVivo (SSE), useRecaptcha, useCerrarSesion, usePanelDatos…
 │       ├── services/         api.ts (cliente HTTP), recaptcha.ts, mapeadores.ts (Go → interfaz)
 │       ├── store/            AppProvider: estado global (sesión, compra, créditos)
-│       ├── data/             catálogo de demostración y parámetros globales
+│       ├── data/             catálogo de películas y salas, cuentas iniciales del personal y parámetros globales
 │       ├── types/            tipos del dominio y de la API
 │       └── utils/            formato, programación (traslapes y huecos libres), imagen del póster, CSV, QR, cola
 ├── backend/                  API REST en Go (arquitectura por capas)
@@ -48,7 +67,7 @@ cineight/
 │   │   ├── services/         lógica de negocio (depende de interfaces, no de implementaciones)
 │   │   └── handlers/         rutas HTTP, JSON y SSE
 │   └── pkg/                  utilidades sin dependencias del dominio: httpx, recaptcha, token
-├── db/init.sql               Esquema PostgreSQL (snake_case en español) + datos de demostración y programación
+├── db/init.sql               Esquema PostgreSQL (snake_case en español) + catálogo, personal y programación inicial
 └── docker-compose.yml        PostgreSQL + Redis + API
 ```
 
@@ -56,13 +75,14 @@ cineight/
 
 | Capa | Tecnología | Estado en el prototipo |
 |---|---|---|
-| Frontend | Next.js 16 (React 19, App Router), TypeScript, Tailwind CSS 4, Framer Motion, lucide-react, qrcode.react | Implementado. Funciona solo: guarda los datos en el navegador (`localStorage`) |
+| Frontend | Next.js 16 (React 19, App Router), TypeScript, Tailwind CSS 4, Framer Motion, lucide-react, qrcode.react | Implementado. Todos los datos vienen de la API; sólo las cuentas para iniciar sesión viven aún en el navegador |
 | Backend | Go 1.26 (`net/http`, pgx, go-redis) | Implementado: bloqueo de butacas en tiempo real (SSE), reservas, pago con créditos, cola virtual, reCAPTCHA v3, rate limiting y métricas |
 | Base de datos | PostgreSQL 18 | Implementado en Docker (`db/init.sql`) |
 | Caché / candados | Redis 8 | Implementado en Docker (retención de 5 min con TTL, cola, rate limiting) |
 | Infraestructura local | Docker Compose | PostgreSQL + Redis + API |
 
-**Pendiente:** autenticación real (JWT + bcrypt) y despliegue en la nube (Vercel, Render/Railway, Supabase, Upstash).
+**Pendiente:** autenticación en el servidor (JWT + bcrypt). Hoy las cuentas y contraseñas se validan en el navegador de
+cada visitante, así que un cliente registrado en un equipo no existe en otro, y no se puede cambiar la contraseña.
 
 ## Cómo abrirlo en tu computadora
 
@@ -74,7 +94,7 @@ cineight/
 | Node.js | 20 o superior (LTS) | Frontend | https://nodejs.org |
 | Docker Desktop | reciente | API en Go, PostgreSQL y Redis | https://www.docker.com/products/docker-desktop |
 
-Docker es opcional: sin él, el frontend funciona en **modo demostración** con datos simulados en el navegador.
+La API es necesaria: sin ella el sitio muestra *Servicio no disponible*.
 No hace falta instalar Go, PostgreSQL ni Redis: Docker los ejecuta.
 
 ### 2. Descargar el proyecto
@@ -119,10 +139,7 @@ Y arranca la aplicación:
 npm run dev
 ```
 
-Abre **http://localhost:3000**. El pie de página indica el modo:
-
-- **API conectada:** los datos vienen de PostgreSQL y Redis.
-- **Modo demostración:** la API no responde; todo funciona igual con datos simulados en el navegador.
+Abre **http://localhost:3000**. Si la API no está levantada verás *Servicio no disponible* con un botón para reintentar.
 
 ### 5. Detener todo
 
@@ -133,16 +150,65 @@ Abre **http://localhost:3000**. El pie de página indica el modo:
 
 | Síntoma | Solución |
 |---|---|
-| El pie dice *Modo demostración* | Verifica que Docker Desktop esté abierto y que `docker compose ps` muestre `api`, `postgres` y `redis` en ejecución. Revisa que exista `frontend/.env.local` y reinicia `npm run dev`. |
+| *Servicio no disponible* | Verifica que Docker Desktop esté abierto y que `docker compose ps` muestre `api`, `postgres` y `redis` en ejecución. Revisa que exista `frontend/.env.local` y reinicia `npm run dev`. |
 | `port is already allocated` (5432, 6379 u 8080) | Otro programa usa ese puerto (por ejemplo un PostgreSQL instalado). Detenlo o cambia el puerto izquierdo en `docker-compose.yml`. |
 | `port 3000 is in use` | Next.js usará el 3001; en ese caso agrega `http://localhost:3001` a `CORS_ORIGINS` en `docker-compose.yml` y vuelve a ejecutar `docker compose up -d`. |
 | `npm` o `node` no se reconoce | Instala Node.js y abre una terminal nueva. |
 | Faltan datos o hay errores tras actualizar | `docker compose down -v` y `docker compose up -d --build`. |
 
-### Accesos de demostración
+### Cuentas iniciales del personal
 
-En **Iniciar sesión** hay botones para entrar como *Cliente*, *Agente Operativo*, *Administrador* o *Auditor*.
-La contraseña para reconfirmar acciones de administrador es `cineight123`.
+Los clientes se registran desde *Iniciar sesión → Registrarse* (reciben 120 créditos de bienvenida). Para entrar al panel
+de operaciones existen estas cuentas, con la contraseña inicial `cineight123`:
+
+| Rol | Correo |
+|---|---|
+| Administrador del Sistema | `admin@cineight.gt` |
+| Agente Operativo | `agente@cineight.gt` |
+| Auditor | `auditor@cineight.gt` |
+
+El administrador crea, edita o da de baja más cuentas en *Panel → Usuarios & roles*. Mientras la autenticación siga en el
+navegador, la contraseña inicial es pública (está en el código del sitio): no la uses para nada fuera de este proyecto.
+
+## Publicar en internet
+
+La arquitectura se reparte en cuatro servicios; todos tienen plan gratuito:
+
+| Pieza | Dónde | Qué se configura |
+|---|---|---|
+| Frontend (Next.js) | **Vercel** | carpeta raíz `frontend`, variables `NEXT_PUBLIC_*` |
+| API (Go, Docker) | **Render** (Web Service) | carpeta raíz `backend`, variables de `backend/.env.example` |
+| PostgreSQL | Render Postgres, Neon o Supabase | cargar `db/init.sql` una vez |
+| Redis | Render Key Value o Upstash | su URL `redis://` o `rediss://` |
+
+`render.yaml` crea la API, PostgreSQL y Redis en Render de una vez (**New → Blueprint**). Paso a paso:
+
+1. **Sube el proyecto a GitHub** (`git push`). Las claves no se suben: `.env` y `.env.local` están en `.gitignore`.
+2. **Render → New → Blueprint** → elige el repositorio. Crea `cineight-api`, `cineight-db` y `cineight-redis`.
+3. **Carga el esquema** una sola vez. Copia la *External Database URL* de `cineight-db` y, con Docker (no hace falta
+   instalar PostgreSQL), ejecuta en la carpeta del proyecto:
+   ```bash
+   docker run --rm -v "${PWD}/db:/db" postgres:18-alpine psql "URL_EXTERNA_DE_LA_BASE" -f /db/init.sql
+   ```
+   (Funciona igual en PowerShell y en Git Bash. Debe terminar sin `ERROR`; si la base ya tenía tablas, bórralas antes.)
+4. **Vercel → Add New → Project** → el mismo repositorio, *Root Directory* = `frontend`, y estas variables:
+   - `NEXT_PUBLIC_API_URL` = URL pública de la API (p. ej. `https://cineight-api.onrender.com`, sin barra final).
+   - `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` = clave pública de reCAPTCHA (opcional).
+5. En Render, en `cineight-api` → *Environment*: `CORS_ORIGINS` = URL de Vercel (p. ej. `https://cineight.vercel.app`)
+   y, si usas reCAPTCHA, `RECAPTCHA_SECRET`. Agrega el dominio de Vercel a los dominios del sitio en reCAPTCHA.
+6. Comprueba: `https://…onrender.com/api/salud` responde `{"estado":"ok"}` y el pie del sitio dice **Datos en vivo**.
+
+Notas:
+
+- **El plan gratuito de Render duerme la API** tras 15 min sin uso; la primera visita tarda hasta ~1 min. El frontend
+  lo sabe: muestra *Conectando con el servidor…* y reintenta durante un minuto antes de mostrar *Servicio no disponible*.
+- **`TRUST_PROXY=true`** (ya puesto en `render.yaml`): detrás del proxy del hosting, el límite anti-bots se cuenta por
+  cliente y no para todos juntos. No lo actives si la API no está detrás de un proxy.
+- **Redis administrado** (Upstash, Render Key Value) no permite activar las notificaciones de expiración; no pasa
+  nada: el canal en vivo reenvía la foto completa del mapa cada 20 s, así los bloqueos vencidos se liberan igual.
+- Con varios usuarios de la misma red (p. ej. un aula), todos comparten IP: si ves `429`, sube `RATE_LIMIT`.
+- Otro hosting con Docker (Railway, Fly.io…) sirve igual: usa `backend/Dockerfile` y las variables de
+  `backend/.env.example`; la API toma el puerto de `PORT`.
 
 ### Versión de producción (opcional)
 
@@ -156,7 +222,7 @@ npm start          # http://localhost:3000
 
 ### Configuración
 
-- `NEXT_PUBLIC_API_URL` (en `frontend/.env.local`): URL de la API. Si se omite, el frontend usa sólo el modo demostración.
+- `NEXT_PUBLIC_API_URL` (en `frontend/.env.local`): URL de la API (obligatoria).
 - `CORS_ORIGINS` (en `docker-compose.yml`): orígenes que pueden llamar a la API. Por defecto `http://localhost:3000,http://127.0.0.1:3000`.
 - `RETENCION_SEGUNDOS` (API, opcional): vida del bloqueo de una butaca y de una reserva. Por defecto 300.
 
@@ -180,20 +246,47 @@ Sin claves, el formulario sigue funcionando con las otras dos capas anti-bots (c
 
 ### Programación de funciones
 
-`db/init.sql` y `frontend/src/data/catalogo.ts` generan la **misma** programación (mismos códigos `f1…f294`):
-cada película se proyecta en dos salas; cada sala alterna dos películas desde las 10:00 (salas 1–8) o las 11:30 (salas 9–16)
-y la siguiente función empieza al terminar la anterior más 20 min de limpieza (RF-31), sin inicios después de las 22:00.
-Antes de las 13:00 hay 10 créditos de descuento. El preestreno con cola virtual es la última función de *Duna: Parte Dos*
-de mañana en la Sala 1. Las fechas son relativas al día en que se crea la base de datos.
+`db/init.sql` y la API (`backend/internal/domain/programacion.go`) usan el **mismo plan**: las 16 películas en exhibición
+forman 8 pares (una larga con una corta) y cada par ocupa dos salas del mismo formato con el orden invertido. Todas las
+salas abren a las 10:00 y la siguiente función empieza al terminar la anterior más 20 min de limpieza (RF-31), sin inicios
+después de las 22:00. Así, **cada película tiene función a las 10:00 todos los días y 5 funciones repartidas hasta la noche**
+(la última entre 21:00 y 21:30); lo comprueban pruebas automáticas en Go. Antes de las 13:00 hay 10 créditos de descuento.
+
+| Formato | Salas | Películas |
+|---|---|---|
+| IMAX Láser | 1 y 9 | *Duna: Parte Dos* · *Top Gun: Maverick* |
+| Dolby Atmos | 2 y 12 | *The Batman* · *Whiplash* |
+| Dolby Atmos | 5 y 10 | *Furiosa* · *Deadpool & Wolverine* |
+| 4DX 3D | 4 y 16 | *Avatar: El Camino del Agua* · *Intensa-Mente 2* |
+| 2D VIP | 7 y 15 | *Oppenheimer* · *Civil War* |
+| 2D | 3 y 13 | *Gladiador* · *Alien: Romulus* |
+| 2D | 6 y 8 | *El Caballero de la Noche* · *Matrix* |
+| 2D | 11 y 14 | *El Planeta de los Simios: Nuevo Reino* · *Todo en todas partes al mismo tiempo* |
+
+`init.sql` programa 4 días a partir de su creación; después, la API completa sola (al arrancar y cada hora) lo que falte
+de hoy y los 3 días siguientes, así la cartelera nunca se vacía. El **preestreno** con cola virtual es la última función
+de *Duna: Parte Dos* de mañana en la Sala 1 IMAX (80 créditos); cuando empieza, la API elige el del día siguiente.
+
+### Cola virtual del preestreno
+
+1. El cliente pasa la verificación anti-bots (reCAPTCHA v3) y entra a la fila (`POST /api/cola/e1`).
+2. La API admite por orden de llegada a `COLA_CAPACIDAD` clientes a la vez (2 por defecto, para que con pocos navegadores
+   ya se vea la fila avanzar; súbelo en producción). Cada uno recibe un turno de `COLA_TURNO_MINUTOS` (3) para elegir
+   butacas y pagar; al pagar o vencer, el cupo pasa al siguiente.
+3. Quien espera consulta su lugar cada 2,5 s; si cierra la página deja de hacerlo y a los 20 s pierde su lugar.
+4. Bloquear o reservar butacas del preestreno sin turno vigente responde `403`: la cola no se puede saltar.
+
+Todo ocurre en un script Lua atómico sobre tres ZSET de Redis (`cola:`, `turnos:`, `latidos:`), así dos clientes nunca
+ocupan el mismo cupo. Para probarla: abre el preestreno en tres navegadores con clientes distintos; el tercero espera.
 
 ## Recorrido sugerido
 
-1. **Iniciar sesión** → elige un acceso de demostración (Cliente, Agente Operativo, Administrador o Auditor).
+1. **Iniciar sesión** → *Registrarse* para crear una cuenta de cliente, o entra con una cuenta del personal (ver arriba).
 2. **Cliente:** cartelera en carruseles horizontales (*En cartelera*, *Estrenos*, *Próximamente*) → ficha de la película
    (director, reparto, sinopsis, tráiler en ventana emergente) → horarios por día → mapa de butacas → *Comprar boletos*.
    Abre la misma función en dos navegadores con clientes distintos: lo que bloquea uno aparece al instante en el otro.
-   La compra continúa en una ventana emergente con cuenta regresiva de 5 min: *Confirmar compra* (retiene créditos) →
-   *Pagar* → ventana de compra exitosa.
+   La compra continúa en una ventana emergente con cuenta regresiva de 5 min: *Pagar* → ventana de compra exitosa.
+   Si el saldo no alcanza, se avisa antes de pagar y se ofrece la trivia sin perder las butacas.
 3. **Mis Entradas (seguridad):** los QR aparecen borrosos; al tocarlos se abre un visor con código dinámico que cambia cada minuto, marca de agua con el correo del titular,
    cierre automático a los 2 min o al cambiar de pestaña. Cada usuario tiene sus propios créditos, boletos y movimientos. El validador del acceso rechaza códigos vencidos (capturas).
    La sesión se cierra sola tras 15 min sin actividad.
@@ -203,38 +296,35 @@ de mañana en la Sala 1. Las fechas son relativas al día en que se crea la base
    cola virtual con posición y tiempo estimado → turno de 3 min para elegir asiento (límite 2 boletos por cliente).
 6. **Agente Operativo / Administrador → Películas:** *Nueva película* con póster (arrastrar o elegir imagen), ficha técnica,
    tráiler y sus funciones. Cada función se revisa en vivo contra la programación (duración + 20 min de limpieza) y se
-   propone el primer horario libre. Con la API se guarda en PostgreSQL (póster incluido) y si alguna función choca no se
-   guarda nada; sin API, se guarda en el navegador.
+   propone el primer horario libre. Se guarda en PostgreSQL (póster incluido) y si alguna función choca no se guarda nada.
 7. **Agente Operativo / Administrador → Programación:** programar una función para cualquier película (detecta traslapes
    y sugiere horarios libres). El agente además tiene inventario por función y validación de boletos en el acceso.
 8. **Administrador → Usuarios & roles:** crear, editar y eliminar (dar de baja) cuentas de cualquier rol. Cada acción pide
-   reconfirmar la contraseña del administrador (demo: `cineight123`, 3 intentos, vale 5 min). No puede cambiar su propio rol
+   reconfirmar la contraseña del administrador (3 intentos, vale 5 min). No puede cambiar su propio rol
    ni darse de baja, y siempre queda al menos un administrador activo. Una cuenta dada de baja no puede iniciar sesión.
 9. **Mis Entradas:** los boletos de la misma función se agrupan en una tarjeta («2 entradas»); el visor muestra el QR de cada
    butaca y se cambia con flechas, teclado, deslizando o tocando la butaca.
-10. **Administrador:** métricas en vivo, parámetros globales, reportes (exporta CSV) y bitácora.
+10. **Administrador:** métricas en vivo, parámetros vigentes (sólo lectura), reportes (exporta CSV) y bitácora.
+    En *Clientes*, las preferencias de cada cliente se ponderan por **visitas** (funciones distintas a las que asistió),
+    no por boletos: quien compra 4 butacas para su familia vio la película una vez.
 11. **Auditor:** reportes y bitácora en solo lectura.
 12. **Cerrar sesión:** desde el menú del usuario (esquina superior derecha); limpia la sesión y vuelve a la cartelera.
 
-## Qué es real y qué está simulado
+## Cómo funciona por dentro
 
-| Pieza | Frontend (prototipo) | Backend en Go |
-|---|---|---|
-| Bloqueo al elegir una butaca | simula ~5 % de "otro cliente la tomó primero" | candado atómico por butaca (script Lua equivalente a `SET NX EX 300`), máx. 6 por cliente |
-| Mapa en tiempo real | — | SSE (`/api/funciones/{id}/stream`) alimentado por Redis Pub/Sub y por los vencimientos de TTL |
-| Retención de 5 min | temporizador en el navegador | `SET NX` + TTL de 300 s en Redis |
-| Sobreventa (RF-54, RNF-36) | — | candados atómicos + índice único parcial en `boletos` |
-| reCAPTCHA v3 (RF-53) | se obtiene el token, pero no hay servidor que lo valide | `POST /api/captcha/verificar` contra Google (puntaje y acción) |
-| Pago con créditos | estado local | transacción con `SELECT … FOR UPDATE`, todo o nada |
-| Pago repetido (RF-23) | — | devuelve los mismos boletos sin volver a cobrar |
-| Cola virtual | avance simulado | `ZADD NX` / `ZRANK` en Redis |
-| Anti-bots (RF-53) | campo trampa + tiempo mínimo de envío | además, límite de 5 solicitudes/min por IP en reservas y cola; los bloqueos quedan en la bitácora |
-| Alta de películas | se guardan en el navegador (póster como imagen comprimida) | transacción en PostgreSQL con póster (`bytea`), validación del tipo real de imagen y de traslapes |
+| Pieza | Implementación |
+|---|---|
+| Bloqueo al elegir una butaca | candado atómico por butaca en Redis (script Lua equivalente a `SET NX EX 300`), máx. 6 por cliente |
+| Mapa en tiempo real | SSE (`/api/funciones/{id}/stream`) alimentado por Redis Pub/Sub, con foto completa cada 20 s |
+| Retención de 5 min | `SET NX` + TTL de 300 s en Redis |
+| Sobreventa (RF-54, RNF-36) | candados atómicos + índice único parcial en `boletos` |
+| reCAPTCHA v3 (RF-53) | `POST /api/captcha/verificar` contra Google (puntaje y acción) y pase de un solo uso para crear cuentas |
+| Pago con créditos | transacción con `SELECT … FOR UPDATE`, todo o nada; repetirlo no vuelve a cobrar (RF-23) |
+| Cola virtual | fila FIFO en Redis (script Lua atómico), turnos con vencimiento exigidos al bloquear o reservar |
+| Anti-bots (RF-53) | campo trampa + tiempo mínimo de envío + límite de 5 solicitudes/min por IP en reservas y cola |
+| Alta de películas | transacción en PostgreSQL con póster (`bytea`), validación del tipo real de imagen y de traslapes |
 
-Con la API conectada, el frontend usa datos reales para la cartelera, las películas y funciones creadas desde el panel,
-la ocupación de butacas en tiempo real, las reservas y el pago, el saldo y los movimientos del cliente, los créditos de
-la trivia, la validación de boletos y las métricas del panel. Siguen simulados: inicio de sesión (sin JWT), gestión de
-usuarios, bitácora y cola virtual.
+Todavía en el navegador (pendiente: JWT + bcrypt): el inicio de sesión, la gestión de usuarios y la bitácora.
 
 | Método | Ruta | Uso |
 |---|---|---|
@@ -246,17 +336,21 @@ usuarios, bitácora y cola virtual.
 | POST | `/api/reservas` | `{funcion, usuario_id, asientos}` → retención de 5 min |
 | POST | `/api/reservas/{id}/pagar` | Pago idempotente → boletos y saldo |
 | DELETE | `/api/reservas/{id}` | Libera la retención |
-| POST | `/api/sesion` | `{correo, nombre}` → usuario y cuenta (bono de 120) |
+| POST | `/api/sesion` | `{correo, nombre, pase?}` → usuario y cuenta (bono de 120). Con reCAPTCHA activo, crear una cuenta nueva exige el `pase` (403 sin él) |
 | GET | `/api/usuarios/{id}/cuenta` | Saldo, movimientos y boletos |
 | POST | `/api/creditos/trivia` | `{usuario_id, partida, aciertos}` → acreditación única por partida |
 | POST | `/api/boletos/{token}/validar` | Validación atómica en el acceso |
 | GET | `/api/metricas` | KPIs del panel de administración |
+| GET | `/api/clientes/historial` | Compras de cada cliente agrupadas por película (boletos, visitas, gasto, última compra) |
+| POST | `/api/cola/{evento}` | `{usuario_id, pase?}` → entra a la cola virtual: posición en la fila o turno con vencimiento |
+| GET | `/api/cola/{evento}/{usuario}` | Posición o turno (consultarlo mantiene el lugar en la fila) |
+| DELETE | `/api/cola/{evento}/{usuario}` | Sale de la fila o libera el turno (p. ej. tras comprar) |
 | GET | `/api/ocupacion` | Ocupación de todas las funciones vigentes en una respuesta (panel) |
 | GET | `/api/peliculas` | Películas creadas desde el panel (ficha completa) |
 | POST | `/api/peliculas` | Agente/administrador: ficha + póster (data URL, máx. 2 MB) + funciones, en una transacción. 409 si alguna función se traslapa |
 | GET | `/api/peliculas/{slug}/poster` | Imagen del póster guardada en PostgreSQL |
 | POST | `/api/funciones` | `{pelicula, sala, inicio, formato, idioma, precio}` → programa una función (409 si se traslapa) |
-| POST | `/api/captcha/verificar` | `{token, accion}` → verificación de reCAPTCHA v3 (403 si no supera el puntaje) |
+| POST | `/api/captcha/verificar` | `{token, accion}` → verificación de reCAPTCHA v3 (403 si no supera el puntaje) y `pase` de un solo uso |
 
 ```bash
 curl localhost:8080/api/funciones

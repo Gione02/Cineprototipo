@@ -40,7 +40,7 @@ export function Header() {
               key={href}
               href={href}
               aria-current={ruta === href ? "page" : undefined}
-              className={`flex items-center gap-2 rounded-md px-3 py-2 text-[11px] font-bold uppercase tracking-[0.14em] transition-colors ${
+              className={`flex items-center gap-2 rounded-md px-3 py-2 text-[13px] font-semibold transition-colors ${
                 ruta === href ? "border border-borde bg-panel-2 text-oro" : "text-tenue hover:text-tinta"
               }`}
             >
@@ -95,7 +95,7 @@ export function Header() {
             className="absolute inset-x-0 top-full flex flex-col border-b border-borde bg-fondo/95 px-4 py-2 backdrop-blur xl:hidden"
           >
             {enlaces.map(({ href, txt, icono: Icono }) => (
-              <Link key={href} href={href} onClick={() => setAbierto(false)} className="flex items-center gap-3 py-3 text-xs font-bold uppercase tracking-[0.14em] text-tinta">
+              <Link key={href} href={href} onClick={() => setAbierto(false)} className="flex items-center gap-3 py-3 text-sm font-semibold text-tinta">
                 <Icono aria-hidden className="h-4 w-4 text-arena" />
                 {txt}
               </Link>

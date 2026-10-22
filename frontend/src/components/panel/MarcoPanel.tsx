@@ -2,10 +2,10 @@
 
 import { m } from "framer-motion";
 import {
-  Activity,
   BarChart3,
   Clapperboard,
   CalendarClock,
+  HeartHandshake,
   LayoutDashboard,
   ScanLine,
   ScrollText,
@@ -15,9 +15,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Rol } from "@/types/catalogo";
-import type { ModoApi } from "@/types/cuenta";
 
-export type IdSeccion = "general" | "peliculas" | "usuarios" | "parametros" | "reportes" | "bitacora" | "programar" | "inventario" | "validar";
+export type IdSeccion = "general" | "clientes" | "peliculas" | "usuarios" | "parametros" | "reportes" | "bitacora" | "programar" | "inventario" | "validar";
 type Seccion = { id: IdSeccion; txt: string; icono: LucideIcon };
 
 /** Secciones visibles según el rol (RF-44). */
@@ -30,6 +29,7 @@ export const SECCIONES: Record<Exclude<Rol, "cliente">, Seccion[]> = {
   ],
   admin: [
     { id: "general", txt: "Panel general", icono: LayoutDashboard },
+    { id: "clientes", txt: "Clientes", icono: HeartHandshake },
     { id: "peliculas", txt: "Películas", icono: Clapperboard },
     { id: "programar", txt: "Programación", icono: CalendarClock },
     { id: "usuarios", txt: "Usuarios & roles", icono: Users },
@@ -44,7 +44,8 @@ export const SECCIONES: Record<Exclude<Rol, "cliente">, Seccion[]> = {
 };
 
 const TITULOS: Record<IdSeccion, [string, string]> = {
-  general: ["Dashboard de operaciones y taquilla en tiempo real", "Telemetría del clúster · Go + Redis + PostgreSQL"],
+  general: ["Dashboard de operaciones y taquilla en tiempo real", "Ventas, ocupación y actividad del día"],
+  clientes: ["Estadísticas de clientes", "Historial de compras y preferencias: películas, géneros, directores y actores"],
   peliculas: ["Catálogo de películas", "Publicar películas con póster, ficha técnica y funciones (RF-05, RF-67)"],
   usuarios: ["Gestión de usuarios y roles", "Crear, editar y dar de baja cuentas · requiere reconfirmar identidad"],
   parametros: ["Parámetros globales", "Configurables sin modificar el código fuente (RF-57)"],
@@ -59,7 +60,6 @@ type Props = {
   secciones: Seccion[];
   activa: IdSeccion;
   onCambiar: (id: IdSeccion) => void;
-  modoApi: ModoApi;
   children: React.ReactNode;
 };
 
@@ -69,7 +69,7 @@ type Props = {
  * crecer con el contenido). La barra lateral nunca se mueve y el área de contenido es el único elemento con scroll.
  * Móvil: la navegación pasa a una fila de pestañas fija bajo el encabezado y la página se desplaza normalmente.
  */
-export function MarcoPanel({ secciones, activa, onCambiar, modoApi, children }: Props) {
+export function MarcoPanel({ secciones, activa, onCambiar, children }: Props) {
   const [titulo, sub] = TITULOS[activa];
   return (
     <div className="flex flex-1 flex-col lg:h-[calc(100dvh-var(--alto-header))] lg:flex-none lg:flex-row lg:overflow-hidden">
@@ -112,20 +112,6 @@ export function MarcoPanel({ secciones, activa, onCambiar, modoApi, children }: 
                 <span className="h-1.5 w-1.5 rounded-full bg-oro" /> {sub}
               </p>
               <h1 className="titulo mt-2 text-2xl leading-tight sm:text-3xl">{titulo}</h1>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ["Go API", modoApi === "conectado" ? "conectada" : modoApi === "verificando" ? "verificando…" : "sin conexión · demo"],
-                  ["Redis seat lock TTL", "5 min"],
-                  ["Anti-bots", "reCAPTCHA v3 · 5 solicitudes/min"],
-                ] as const
-              ).map(([a, b]) => (
-                <span key={a} className="flex items-center rounded-md border border-borde bg-panel px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em]">
-                  <Activity aria-hidden className={`mr-1.5 h-3 w-3 ${modoApi === "conectado" ? "text-oro" : "text-rojo"}`} />
-                  {a} <span className="ml-1 font-semibold normal-case tracking-normal text-tenue">{b}</span>
-                </span>
-              ))}
             </div>
           </div>
           {children}

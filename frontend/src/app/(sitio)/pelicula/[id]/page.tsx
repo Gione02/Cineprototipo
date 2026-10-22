@@ -108,35 +108,7 @@ export default function FichaPelicula() {
         </div>
       </section>
 
-      {/* Reparto y ficha técnica */}
-      <section className="grid gap-8 md:grid-cols-[1fr_360px]">
-        <div>
-          <p className="etiqueta text-oro">{p.repartoVoces ? "Reparto de voces" : "Reparto principal"}</p>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {p.reparto.map((r) => (
-              <div key={r} className="tarjeta flex items-center gap-3 p-3">
-                <span className="grid h-10 w-10 place-items-center rounded-full border border-arena/50 bg-panel-2 text-xs font-black text-arena">
-                  {r.split(" ").map((x) => x[0]).join("").slice(0, 2)}
-                </span>
-                <span className="text-sm font-semibold">{r}</span>
-              </div>
-            ))}
-          </div>
-          <p className="etiqueta mt-8 text-oro">Sinopsis</p>
-          <p className="mt-2 leading-relaxed text-tenue">{p.sinopsis}</p>
-        </div>
-        <dl className="tarjeta h-fit divide-y divide-borde px-4">
-          <p className="etiqueta py-3 text-oro">Ficha técnica</p>
-          {ficha.map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-4 py-2.5 text-sm">
-              <dt className="shrink-0 text-tenue">{k}</dt>
-              <dd className="text-right font-semibold">{v}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      {/* Horarios */}
+      {/* Horarios: lo primero que busca quien quiere comprar, justo debajo de la cabecera */}
       <section id="horarios" className="scroll-mt-24">
         <div className="mb-5">
           <p className="etiqueta text-oro">Elige un día y una función para seleccionar tus butacas</p>
@@ -151,6 +123,32 @@ export default function FichaPelicula() {
         ) : (
           <HorariosPorDia funciones={funcs} />
         )}
+      </section>
+
+      {/* Reparto y ficha técnica */}
+      <section className="grid gap-8 md:grid-cols-[1fr_360px]">
+        <div>
+          <p className="etiqueta text-oro">{p.repartoVoces ? "Reparto de voces" : "Reparto principal"}</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {p.reparto.map((r) => (
+              <div key={r} className="tarjeta flex items-center gap-3 p-3">
+                <span className="grid h-10 w-10 place-items-center rounded-full border border-arena/50 bg-panel-2 text-xs font-black text-arena">
+                  {r.split(" ").map((x) => x[0]).join("").slice(0, 2)}
+                </span>
+                <span className="text-sm font-semibold">{r}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <dl className="tarjeta h-fit divide-y divide-borde px-4">
+          <p className="etiqueta py-3 text-oro">Ficha técnica</p>
+          {ficha.map(([k, v]) => (
+            <div key={k} className="flex justify-between gap-4 py-2.5 text-sm">
+              <dt className="shrink-0 text-tenue">{k}</dt>
+              <dd className="text-right font-semibold">{v}</dd>
+            </div>
+          ))}
+        </dl>
       </section>
 
       <ModalTrailer p={p} abierto={trailer} onCerrar={() => setTrailer(false)} />

@@ -47,28 +47,45 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	// REDIS_URL (rediss:// con TLS en Upstash, Render, Railway…) o REDIS_ADDR en local.
+	opciones := &redis.Options{Addr: cfg.RedisAddr}
+	if cfg.RedisURL != "" {
+		if opciones, err = redis.ParseURL(cfg.RedisURL); err != nil {
+			log.Fatalf("REDIS_URL inválida: %v", err)
+		}
+	}
+	// Tiempos cortos: si Redis cae, las solicitudes fallan rápido con 503 en lugar de quedarse colgadas.
+	opciones.DialTimeout, opciones.ReadTimeout, opciones.WriteTimeout, opciones.MaxRetries = 2*time.Second, time.Second, time.Second, 1
+	rdb := redis.NewClient(opciones)
 	defer rdb.Close()
+	httpx.ConfiarProxy = cfg.ConfiarProxy
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Printf("Redis no responde al arrancar (%v): las reservas responderán 503 hasta que vuelva", err)
+	}
 
 	// Repositorios
 	pg := repository.NuevoPostgres(db)
 	rd := repository.NuevoRedis(rdb)
 
 	// Servicios
-	asientos := services.NuevoAsientos(pg, rd, cfg.Retencion)
+	seguridad := services.NuevaSeguridad(recaptcha.Nuevo(cfg.RecaptchaKey, cfg.RecaptchaMin), rd, rd, pg)
+	cola := services.NuevaCola(rd, seguridad, cfg.ColaCapacidad, cfg.ColaTurno)
+	asientos := services.NuevoAsientos(pg, rd, cola, cfg.Retencion)
 	srv := handlers.Servicios{
 		Catalogo:  pg,
 		Asientos:  asientos,
 		Reservas:  services.NuevoReservas(asientos, pg, rd, pg, cfg.Retencion),
-		Cuentas:   services.NuevoCuentas(pg, pg, pg),
-		Cola:      services.NuevaCola(rd, cfg.ColaCapacidad),
+		Cuentas:   services.NuevoCuentas(pg, pg, pg, seguridad),
+		Cola:      cola,
 		Panel:     services.NuevoPanel(pg, rd, rd),
-		Seguridad: services.NuevaSeguridad(recaptcha.Nuevo(cfg.RecaptchaKey, cfg.RecaptchaMin), rd, pg),
+		Seguridad: seguridad,
 		Cartelera: services.NuevaCartelera(pg),
 	}
 
 	// Los vencimientos de Redis (TTL) se difunden como "liberado" a los mapas abiertos.
 	go asientos.EscucharExpiraciones(ctx)
+	// Hoy y los próximos días siempre tienen funciones, aunque la base de datos se haya creado hace días.
+	go services.NuevaProgramacion(pg).Mantener(ctx)
 
 	origenes := httpx.ListaOrigenes(cfg.OrigenesCORS)
 	servidor := &http.Server{
@@ -87,7 +104,8 @@ func main() {
 		_ = servidor.Shutdown(apagar)
 	}()
 
-	log.Printf("Cineight API escuchando en %s · CORS: %v · reCAPTCHA: %v", servidor.Addr, cfg.OrigenesCORS, cfg.RecaptchaKey != "")
+	log.Printf("Cineight API escuchando en %s · CORS: %v · reCAPTCHA: %v · cola virtual: %d turnos de %s",
+		servidor.Addr, cfg.OrigenesCORS, cfg.RecaptchaKey != "", cfg.ColaCapacidad, cfg.ColaTurno)
 	if err := servidor.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}

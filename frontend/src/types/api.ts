@@ -17,7 +17,20 @@ export type FuncionApi = {
 };
 export type AsientosApi = { vendidos: string[]; retenidos: string[]; propios?: string[] };
 export type ReservaApi = { reserva_id: string; expira: string };
-export type BoletoApi = { token: string; funcion: string; asiento: string; precio: number; estado: "valido" | "utilizado" | "anulado" | "reembolsado"; fecha: string };
+/** Boleto con los datos de su función (sirven para mostrarlo aunque la función ya haya terminado). */
+export type BoletoApi = {
+  token: string;
+  funcion: string;
+  asiento: string;
+  precio: number;
+  estado: "valido" | "utilizado" | "anulado" | "reembolsado";
+  fecha: string;
+  pelicula: string;
+  sala: string;
+  inicio: string;
+  formato: string;
+  idioma: string;
+};
 export type PagoApi = { reserva_id: string; boletos: BoletoApi[]; saldo?: number; repetido?: boolean };
 export type MovimientoApi = { id: number; tipo: "recarga" | "retencion" | "debito" | "liberacion" | "reembolso"; monto: number; referencia: string; fecha: string };
 export type CuentaApi = { saldo: number; movimientos: MovimientoApi[]; boletos: BoletoApi[] };
@@ -58,8 +71,28 @@ export type PeliculaApi = {
 /** Función a programar (POST /api/peliculas y POST /api/funciones). */
 export type NuevaFuncionApi = { sala: string; inicio: string; formato: string; idioma: string; precio: number };
 
-/** Resultado de POST /api/captcha/verificar. `activo` = false cuando el servidor no tiene clave secreta configurada. */
-export type CaptchaApi = { valido: boolean; puntaje: number; accion?: string; motivo?: string; activo: boolean };
+/**
+ * Resultado de POST /api/captcha/verificar. `activo` = false cuando el servidor no tiene clave secreta configurada.
+ * `pase`: comprobante de un solo uso para crear la cuenta en POST /api/sesion.
+ */
+export type CaptchaApi = { valido: boolean; puntaje: number; accion?: string; motivo?: string; activo: boolean; pase?: string };
+
+/** Compras de un cliente agrupadas por película (GET /api/clientes/historial). */
+export type ConsumoPeliculaApi = {
+  pelicula: string;
+  titulo: string;
+  genero: string;
+  director: string;
+  reparto: string[];
+  boletos: number;
+  funciones: number;
+  gastado: number;
+  ultima: string;
+};
+export type HistorialClienteApi = { id: number; nombre: string; correo: string; activo: boolean; creado: string; saldo: number; peliculas: ConsumoPeliculaApi[] };
+
+/** Lugar en la cola virtual de un preestreno: posición en la fila o turno vigente (con su vencimiento). */
+export type PosicionColaApi = { posicion: number; en_cola: number; turno_habilitado: boolean; espera_min: number; expira?: string; capacidad: number };
 
 /** Mensaje del stream SSE de una función (evento "asientos"). */
 export type EventoAsientosApi = { tipo: "bloqueado" | "liberado" | "vendido"; funcion: string; asientos: string[] };

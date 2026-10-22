@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { m } from "framer-motion";
-import { Armchair, BellRing, Gem } from "lucide-react";
+import { BellRing, CalendarClock, Gem } from "lucide-react";
 import { fechaEstreno } from "@/data/catalogo";
 import { PARAMETROS } from "@/data/parametros";
 import { fmtDiaRelativo, fmtDuracion, fmtHora } from "@/utils/formato";
@@ -31,53 +31,52 @@ export function TarjetaPelicula({ p, i }: { p: Pelicula; i: number }) {
     >
       <Link href={`/pelicula/${p.id}`} className="relative block p-1.5 pb-0 sm:p-3 sm:pb-0" draggable={false}>
         <Poster p={p} className="aspect-[2/3] w-full transition-[filter] duration-500 group-hover:brightness-110" sizes="(max-width: 640px) 46vw, (max-width: 1024px) 31vw, 290px" />
-        <span className={`absolute right-2.5 top-2.5 !text-[8px] sm:right-5 sm:top-5 sm:!text-[10px] ${p.categoria === "cartelera" ? "badge-borde" : "badge-vino"}`}>{badge}</span>
-        <span className="absolute bottom-1.5 left-2.5 rounded bg-fondo/85 px-1.5 py-0.5 text-[9px] font-bold tracking-wide sm:bottom-2 sm:left-5 sm:px-2 sm:text-[10px]">
+        <span className={`absolute right-2.5 top-2.5 sm:right-5 sm:top-5 ${p.categoria === "cartelera" ? "badge-borde" : "badge-vino"}`}>{badge}</span>
+        <span className="absolute bottom-1.5 left-2.5 rounded bg-fondo/85 px-1.5 py-0.5 text-[11px] font-bold tracking-wide sm:bottom-2 sm:left-5 sm:px-2">
           {p.clasificacion} · {fmtDuracion(p.duracion)}
           {p.duracionEstimada ? " (est.)" : ""}
         </span>
       </Link>
-      <div className="flex flex-1 flex-col p-2.5 sm:p-4">
-        <p className="etiqueta truncate !text-[8px] sm:!text-[10px]">
+      <div className="flex flex-1 flex-col p-3 sm:p-4">
+        <p className="etiqueta truncate">
           {p.genero.split(" / ")[0]}
           <span className="hidden sm:inline"> · {p.director.split(",")[0]}</span>
         </p>
         <Link href={`/pelicula/${p.id}`}>
-          <h3 className="titulo mt-1 line-clamp-2 text-xs leading-tight group-hover:text-salmon sm:mt-1.5 sm:text-base">{p.titulo}</h3>
+          <h3 className="titulo mt-1 line-clamp-2 text-lg leading-none group-hover:text-salmon sm:mt-1.5 sm:text-xl">{p.titulo}</h3>
         </Link>
         <p className="mt-1.5 hidden text-xs leading-relaxed text-tenue sm:line-clamp-2">{p.sinopsis}</p>
 
         {p.categoria === "proximamente" ? (
           <div className="mt-auto pt-3 sm:pt-4">
             <p className="etiqueta hidden sm:block">Apertura de taquilla</p>
-            <p className="text-[11px] font-bold text-oro sm:mt-1 sm:text-sm">Estreno el {fechaEstreno(p)}</p>
-            <BotonEnlace href={`/pelicula/${p.id}`} variante="borde" icono={BellRing} className="mt-2.5 w-full !px-2 !py-2 !text-[10px] sm:mt-4 sm:!px-5 sm:!py-3 sm:!text-xs">
+            <p className="text-xs font-bold text-oro sm:mt-1 sm:text-sm">Estreno el {fechaEstreno(p)}</p>
+            <BotonEnlace href={`/pelicula/${p.id}`} variante="borde" icono={BellRing} className="mt-3 w-full !px-2 !py-2.5 sm:mt-4 sm:!px-5 sm:!py-3">
               Detalles
             </BotonEnlace>
           </div>
         ) : (
           <div className="mt-auto pt-3 sm:pt-4">
             <p className="etiqueta mb-1.5 hidden sm:mb-2 sm:block">Próximos horarios</p>
-            <div className="flex flex-wrap gap-1 sm:gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {proximas.slice(0, 3).map((f, k) => (
                 <Link
                   key={f.id}
                   href={f.eventoId ? `/cola/${f.eventoId}` : `/funcion/${f.id}`}
-                  className={`chip !px-1.5 !py-1 !text-[10px] sm:!px-3 sm:!py-1.5 sm:!text-xs ${k > 1 ? "hidden sm:inline-block" : ""}`}
+                  className={`chip !px-2 !py-1 sm:!px-3 sm:!py-1.5 ${k > 0 ? "hidden sm:inline-block" : ""}`}
                 >
                   <span className="text-tenue">{fmtDiaRelativo(f.inicio)}</span> {fmtHora(f.inicio)}
                 </Link>
               ))}
             </div>
-            <div className="mt-2.5 flex items-baseline justify-between border-t border-borde pt-2 sm:mt-4 sm:pt-3">
-              <span className="etiqueta !text-[8px] sm:!text-[10px]">Desde</span>
-              <span className="flex items-center gap-1 text-[11px] font-bold text-oro sm:text-sm">
+            <div className="mt-3 flex items-baseline justify-between border-t border-borde pt-2 sm:mt-4 sm:pt-3">
+              <span className="etiqueta">Desde</span>
+              <span className="flex items-center gap-1 text-xs font-bold text-oro sm:text-sm">
                 <Gem aria-hidden className="h-3 w-3" /> {desde} cr.
               </span>
             </div>
-            <BotonEnlace href={`/pelicula/${p.id}#horarios`} icono={Armchair} className="mt-2 w-full !px-2 !py-2 !text-[10px] sm:mt-3 sm:!px-5 sm:!py-3 sm:!text-xs">
-              <span className="sm:hidden">Asientos</span>
-              <span className="hidden sm:inline">Elegir asientos</span>
+            <BotonEnlace href={`/pelicula/${p.id}#horarios`} icono={CalendarClock} className="mt-2 w-full !px-2 !py-2.5 sm:mt-3 sm:!px-5 sm:!py-3">
+              Horarios
             </BotonEnlace>
           </div>
         )}

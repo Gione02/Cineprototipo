@@ -106,14 +106,18 @@ func (p *Postgres) VendidosVigentes(ctx context.Context) (codigos map[int]string
 
 // ContextoReserva reúne lo necesario para validar una reserva: si la función es un preestreno,
 // cuántas de las butacas pedidas ya se vendieron y cuántos boletos tiene ya el usuario.
+// Devuelve domain.ErrFuncionIniciada si la función ya empezó o no está programada.
 func (p *Postgres) ContextoReserva(ctx context.Context, funcionID int, asientos []string, usuarioID int64) (evento *string, vendidos, propios int, err error) {
+	var abierta bool
 	err = p.db.QueryRow(ctx, `
-		SELECT f.evento,
+		SELECT f.evento, f.inicio > now() AND f.estado = 'programada',
 		       (SELECT count(*) FROM boletos b WHERE b.funcion_id = f.id AND b.asiento = ANY($2) AND b.estado IN ('valido','utilizado')),
 		       (SELECT count(*) FROM boletos b WHERE b.funcion_id = f.id AND b.usuario_id = $3 AND b.estado IN ('valido','utilizado'))
-		FROM funciones f WHERE f.id = $1`, funcionID, asientos, usuarioID).Scan(&evento, &vendidos, &propios)
+		FROM funciones f WHERE f.id = $1`, funcionID, asientos, usuarioID).Scan(&evento, &abierta, &vendidos, &propios)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = domain.ErrNoExiste
+	} else if err == nil && !abierta {
+		err = domain.ErrFuncionIniciada
 	}
 	return
 }

@@ -65,7 +65,7 @@ export function FormPelicula({ onListo }: { onListo: (id: string) => void }) {
   const [poster, setPoster] = useState("");
   const [procesandoImg, setProcesandoImg] = useState(false);
   const [arrastrando, setArrastrando] = useState(false);
-  // La primera función propuesta ya viene en un hueco libre (la programación base ocupa de 10:00 a 22:00).
+  // La primera función propuesta ya viene en un hueco libre (la programación base ocupa de 10:00 a 23:00).
   const [filas, setFilas] = useState<Fila[]>(() => {
     const h = primerHueco(funciones, SALAS.map((s) => s.id), 120);
     return [{ clave: 1, ...h, precio: precioDeSala(h.salaId) }];

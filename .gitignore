@@ -12,6 +12,7 @@ backend/*.exe
 # Variables de entorno y secretos
 .env
 .env.*
+!.env.example
 
 # Sistema / logs
 .DS_Store

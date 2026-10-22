@@ -42,7 +42,7 @@ export type Funcion = {
 };
 
 // Preestreno de alta demanda: la venta se regula con cola virtual (RF-36, RF-51).
-export type EstrenoConCola = { id: string; nombre: string; funcionId: string; limitePorCliente: number };
+export type EstrenoConCola = { id: string; nombre: string; limitePorCliente: number };
 
 export type Pregunta = { texto: string; opciones: string[]; correcta: number };
 

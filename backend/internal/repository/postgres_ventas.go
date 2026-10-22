@@ -10,7 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const columnasBoleto = `b.token, f.codigo, b.asiento, b.precio, b.estado, b.fecha_venta FROM boletos b JOIN funciones f ON f.id = b.funcion_id`
+const columnasBoleto = `b.token, f.codigo, b.asiento, b.precio, b.estado, b.fecha_venta, p.slug, s.codigo, f.inicio, f.formato, f.idioma
+	FROM boletos b JOIN funciones f ON f.id = b.funcion_id JOIN peliculas p ON p.id = f.pelicula_id JOIN salas s ON s.id = f.sala_id`
 
 // BoletosDeReserva devuelve los boletos emitidos por un pago (vacío si la reserva aún no se pagó).
 func (p *Postgres) BoletosDeReserva(ctx context.Context, reservaID string) []domain.Boleto {
@@ -67,10 +68,10 @@ func (p *Postgres) ValidarBoleto(ctx context.Context, tok string) (domain.Valida
 	var b domain.Boleto
 	var titular string
 	err := p.db.QueryRow(ctx, `
-		UPDATE boletos b SET estado = 'utilizado' FROM funciones f, usuarios u
-		WHERE b.token = $1 AND b.estado = 'valido' AND f.id = b.funcion_id AND u.id = b.usuario_id
-		RETURNING b.token, f.codigo, b.asiento, b.precio, b.estado, b.fecha_venta, u.correo`, tok).
-		Scan(&b.Token, &b.Funcion, &b.Asiento, &b.Precio, &b.Estado, &b.Fecha, &titular)
+		UPDATE boletos b SET estado = 'utilizado' FROM funciones f, usuarios u, peliculas p, salas s
+		WHERE b.token = $1 AND b.estado = 'valido' AND f.id = b.funcion_id AND u.id = b.usuario_id AND p.id = f.pelicula_id AND s.id = f.sala_id
+		RETURNING b.token, f.codigo, b.asiento, b.precio, b.estado, b.fecha_venta, p.slug, s.codigo, f.inicio, f.formato, f.idioma, u.correo`, tok).
+		Scan(&b.Token, &b.Funcion, &b.Asiento, &b.Precio, &b.Estado, &b.Fecha, &b.Pelicula, &b.Sala, &b.Inicio, &b.Formato, &b.Idioma, &titular)
 	if err == nil {
 		return domain.Validacion{OK: true, Motivo: "Acceso permitido", Boleto: &b, Titular: titular}, nil
 	}
@@ -80,7 +81,7 @@ func (p *Postgres) ValidarBoleto(ctx context.Context, tok string) (domain.Valida
 
 	// No se pudo usar: averiguar por qué (inexistente, ya utilizado, anulado…).
 	consulta := `SELECT ` + strings.Replace(columnasBoleto, "FROM boletos b", ", u.correo FROM boletos b JOIN usuarios u ON u.id = b.usuario_id", 1) + ` WHERE b.token = $1`
-	err = p.db.QueryRow(ctx, consulta, tok).Scan(&b.Token, &b.Funcion, &b.Asiento, &b.Precio, &b.Estado, &b.Fecha, &titular)
+	err = p.db.QueryRow(ctx, consulta, tok).Scan(&b.Token, &b.Funcion, &b.Asiento, &b.Precio, &b.Estado, &b.Fecha, &b.Pelicula, &b.Sala, &b.Inicio, &b.Formato, &b.Idioma, &titular)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.Validacion{OK: false, Motivo: "Boleto inexistente"}, nil
 	}

@@ -1,6 +1,6 @@
 // Reglas de programación de funciones compartidas por el panel (RF-31).
 
-import { finFuncion } from "@/data/catalogo";
+import { ULTIMA_FUNCION_MIN, finFuncion } from "@/data/catalogo";
 import { PARAMETROS } from "@/data/parametros";
 import type { Funcion } from "@/types/catalogo";
 
@@ -23,10 +23,10 @@ export function funcionQueChoca(existentes: Ocupada[], salaId: string, inicio: s
 /** "HH:MM" de un minuto del día. */
 export const horaDeMinuto = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
-/** Horarios libres (cada 30 min entre 10:00 y 22:00) para una sala y fecha. */
+/** Horarios libres (cada 30 min entre 10:00 y el último inicio permitido) para una sala y fecha. */
 export function horariosLibres(existentes: Ocupada[], salaId: string, fecha: string, duracion: number, max = 6) {
   const libres: string[] = [];
-  for (let m = 10 * 60; m <= 22 * 60 && libres.length < max; m += 30) {
+  for (let m = 10 * 60; m <= ULTIMA_FUNCION_MIN && libres.length < max; m += 30) {
     const h = horaDeMinuto(m);
     const inicio = new Date(`${fecha}T${h}:00`);
     if (inicio > new Date() && !funcionQueChoca(existentes, salaId, inicio.toISOString(), duracion)) libres.push(h);

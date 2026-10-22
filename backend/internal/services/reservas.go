@@ -53,10 +53,10 @@ func (s *Reservas) Crear(ctx context.Context, sol SolicitudReserva) (id string, 
 	}
 
 	evento, vendidos, propios, err := s.catalogo.ContextoReserva(ctx, fid, sol.Asientos, sol.UsuarioID)
-	if errors.Is(err, domain.ErrNoExiste) {
-		return "", expira, domain.NoEncontrado("La función no existe.")
-	}
 	if err != nil {
+		return "", expira, errorDeFuncion(err)
+	}
+	if err := s.asientos.turnos.ExigirTurno(ctx, evento, sol.UsuarioID); err != nil {
 		return "", expira, err
 	}
 	if vendidos > 0 {
@@ -86,8 +86,11 @@ func (s *Reservas) Crear(ctx context.Context, sol SolicitudReserva) (id string, 
 // Cancelar libera las butacas de una reserva vigente.
 func (s *Reservas) Cancelar(ctx context.Context, id string) error {
 	r, err := s.candados.Reserva(ctx, id)
-	if err != nil {
+	if errors.Is(err, domain.ErrNoExiste) {
 		return domain.NoEncontrado("La reserva no existe o ya expiró.")
+	}
+	if err != nil {
+		return err
 	}
 	liberadas, err := s.candados.BorrarReserva(ctx, r)
 	if err != nil {
@@ -103,8 +106,11 @@ func (s *Reservas) Pagar(ctx context.Context, id string) (domain.ResultadoPago, 
 		return domain.ResultadoPago{ReservaID: id, Boletos: previos, Repetido: true}, 200, nil
 	}
 	r, err := s.candados.Reserva(ctx, id)
-	if err != nil {
+	if errors.Is(err, domain.ErrNoExiste) {
 		return domain.ResultadoPago{}, 0, domain.Expirado("La reserva expiró y los asientos fueron liberados.")
+	}
+	if err != nil {
+		return domain.ResultadoPago{}, 0, err
 	}
 
 	saldo, err := s.ventas.RegistrarVenta(ctx, r)

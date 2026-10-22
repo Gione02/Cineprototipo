@@ -27,6 +27,17 @@ export const boletoDeApi = (b: BoletoApi, titular: string): Boleto => ({
   titular,
 });
 
+/** Función de un boleto, tal como la guarda PostgreSQL (puede estar terminada y ya no venir en GET /api/funciones). */
+export const funcionDeBoleto = (b: BoletoApi): Funcion => ({
+  id: b.funcion,
+  peliculaId: b.pelicula,
+  salaId: b.sala,
+  inicio: b.inicio,
+  formato: b.formato,
+  idioma: b.idioma,
+  precio: b.precio,
+});
+
 const TIPO_MOV: Record<MovimientoApi["tipo"], Movimiento["tipo"]> = { recarga: "recarga", retencion: "retención", debito: "débito", liberacion: "liberación", reembolso: "reembolso" };
 function referenciaLegible(ref: string) {
   if (ref.startsWith("bono-bienvenida")) return "Bono de bienvenida";

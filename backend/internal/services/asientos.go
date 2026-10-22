@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -15,12 +16,13 @@ import (
 type Asientos struct {
 	catalogo  Catalogo
 	candados  Candados
+	turnos    Turnos
 	retencion time.Duration
 }
 
-// NuevoAsientos crea el servicio.
-func NuevoAsientos(c Catalogo, k Candados, retencion time.Duration) *Asientos {
-	return &Asientos{catalogo: c, candados: k, retencion: retencion}
+// NuevoAsientos crea el servicio. `turnos` exige turno de la cola virtual en las funciones de preestreno.
+func NuevoAsientos(c Catalogo, k Candados, t Turnos, retencion time.Duration) *Asientos {
+	return &Asientos{catalogo: c, candados: k, turnos: t, retencion: retencion}
 }
 
 // Resolver convierte el código público o el id de una función en su id numérico.
@@ -30,6 +32,17 @@ func (s *Asientos) Resolver(ctx context.Context, ref string) (int, error) {
 		return 0, domain.NoEncontrado("La función no existe.")
 	}
 	return id, nil
+}
+
+// errorDeFuncion traduce los errores de ContextoReserva a mensajes para el cliente.
+func errorDeFuncion(err error) error {
+	switch {
+	case errors.Is(err, domain.ErrNoExiste):
+		return domain.NoEncontrado("La función no existe.")
+	case errors.Is(err, domain.ErrFuncionIniciada):
+		return domain.Expirado("Esta función ya comenzó. Elige otro horario.")
+	}
+	return err
 }
 
 // Ocupacion combina las butacas vendidas (PostgreSQL) y las retenidas o bloqueadas (claves vivas en Redis).
@@ -73,9 +86,14 @@ func (s *Asientos) Bloquear(ctx context.Context, ref, asiento string, usuarioID 
 	if err != nil {
 		return err
 	}
-	if _, vendidos, _, err := s.catalogo.ContextoReserva(ctx, fid, []string{asiento}, usuarioID); err != nil {
-		return domain.NoEncontrado("La función no existe.")
-	} else if vendidos > 0 {
+	evento, vendidos, _, err := s.catalogo.ContextoReserva(ctx, fid, []string{asiento}, usuarioID)
+	if err != nil {
+		return errorDeFuncion(err)
+	}
+	if err := s.turnos.ExigirTurno(ctx, evento, usuarioID); err != nil {
+		return err
+	}
+	if vendidos > 0 {
 		return domain.Conflicto("La butaca " + asiento + " ya fue vendida.")
 	}
 
