@@ -3,6 +3,8 @@ package httpx
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -20,6 +22,31 @@ func JSON(w http.ResponseWriter, estado int, v any) {
 // Error responde {"error": mensaje}, el formato que espera el frontend.
 func Error(w http.ResponseWriter, estado int, mensaje string) {
 	JSON(w, estado, map[string]string{"error": mensaje})
+}
+
+// EventoSSE escribe un evento de Server-Sent Events con v serializado en JSON ("event: …\ndata: …\n\n").
+func EventoSSE(w io.Writer, evento string, v any) error {
+	datos, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", evento, datos)
+	return err
+}
+
+// CabecerasJSON fija en toda respuesta Content-Type: application/json y X-Content-Type-Options: nosniff.
+// Los handlers que entregan otro contenido (pósters, stream SSE) reemplazan el Content-Type antes de escribir.
+func CabecerasJSON(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// NoEncontrado responde 404 en JSON para rutas que no existen (en lugar del texto plano de net/http).
+func NoEncontrado(w http.ResponseWriter, _ *http.Request) {
+	Error(w, http.StatusNotFound, "Ruta no encontrada.")
 }
 
 // Leer decodifica el cuerpo JSON de la solicitud en destino (máximo 64 KB).

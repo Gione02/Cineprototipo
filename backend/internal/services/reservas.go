@@ -35,13 +35,8 @@ type SolicitudReserva struct {
 // Crear retiene las butacas a nombre de una reserva nueva. Las butacas deben estar libres
 // o bloqueadas por el mismo usuario desde el mapa; la operación es todo o nada (RF-54).
 func (s *Reservas) Crear(ctx context.Context, sol SolicitudReserva) (id string, expira time.Time, err error) {
-	if len(sol.Asientos) == 0 || len(sol.Asientos) > domain.MaxAsientosPorCompra || sol.UsuarioID == 0 {
-		return "", expira, domain.Invalido(fmt.Sprintf("Solicitud inválida: entre 1 y %d asientos y usuario_id requeridos.", domain.MaxAsientosPorCompra))
-	}
-	for _, as := range sol.Asientos {
-		if !domain.FormatoAsiento.MatchString(as) {
-			return "", expira, domain.Invalido("Butaca inválida: " + as)
-		}
+	if err := validarSolicitud(sol); err != nil {
+		return "", expira, err
 	}
 	ref := sol.Funcion
 	if ref == "" {
@@ -81,6 +76,19 @@ func (s *Reservas) Crear(ctx context.Context, sol SolicitudReserva) (id string, 
 	}
 	s.asientos.publicar(ctx, fid, ref, domain.AsientoBloqueado, r.Asientos)
 	return r.ID, time.Now().Add(s.retencion), nil
+}
+
+// validarSolicitud comprueba la forma de la solicitud antes de tocar la base de datos o Redis.
+func validarSolicitud(sol SolicitudReserva) error {
+	if len(sol.Asientos) == 0 || len(sol.Asientos) > domain.MaxAsientosPorCompra || sol.UsuarioID == 0 {
+		return domain.Invalido(fmt.Sprintf("Solicitud inválida: entre 1 y %d asientos y usuario_id requeridos.", domain.MaxAsientosPorCompra))
+	}
+	for _, as := range sol.Asientos {
+		if !domain.FormatoAsiento.MatchString(as) {
+			return domain.Invalido("Butaca inválida: " + as)
+		}
+	}
+	return nil
 }
 
 // Cancelar libera las butacas de una reserva vigente.

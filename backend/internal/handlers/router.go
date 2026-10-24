@@ -14,7 +14,6 @@ import (
 
 // Servicios que necesitan los handlers.
 type Servicios struct {
-	Catalogo  services.Catalogo
 	Asientos  *services.Asientos
 	Reservas  *services.Reservas
 	Cuentas   *services.CuentasClientes
@@ -80,7 +79,11 @@ func NuevoRouter(s Servicios, limites Limites, origenes map[string]bool) http.Ha
 	// Seguridad
 	mux.Handle("POST /api/captcha/verificar", interactivo(a.verificarCaptcha))
 
-	return httpx.CORS(origenes, httpx.Recuperar(mux))
+	// Cualquier otra ruta: 404 en JSON.
+	mux.HandleFunc("/", httpx.NoEncontrado)
+
+	// Orden de los middlewares (de afuera hacia adentro): CORS → recuperación de panics → cabeceras JSON → rutas.
+	return httpx.CORS(origenes, httpx.Recuperar(httpx.CabecerasJSON(mux)))
 }
 
 // limitar envuelve un handler con el límite de solicitudes por IP de su grupo (RF-53).

@@ -7,21 +7,35 @@ import (
 )
 
 // Error de negocio con el código HTTP con que debe responderse y un mensaje apto para el usuario.
+// Causa (opcional) identifica el tipo de error para errors.Is, sin depender del texto del mensaje.
 type Error struct {
 	Estado  int
 	Mensaje string
+	Causa   error
 }
 
 func (e *Error) Error() string { return e.Mensaje }
+func (e *Error) Unwrap() error { return e.Causa }
 
 // Constructores de errores frecuentes.
-func Invalido(msg string) error     { return &Error{http.StatusBadRequest, msg} }
-func NoEncontrado(msg string) error { return &Error{http.StatusNotFound, msg} }
-func Conflicto(msg string) error    { return &Error{http.StatusConflict, msg} }
-func Expirado(msg string) error     { return &Error{http.StatusGone, msg} }
-func SinSaldo(msg string) error     { return &Error{http.StatusPaymentRequired, msg} }
-func Prohibido(msg string) error    { return &Error{http.StatusForbidden, msg} }
-func Demasiadas(msg string) error   { return &Error{http.StatusTooManyRequests, msg} }
+func Invalido(msg string) error     { return &Error{Estado: http.StatusBadRequest, Mensaje: msg} }
+func NoEncontrado(msg string) error { return &Error{Estado: http.StatusNotFound, Mensaje: msg} }
+func Conflicto(msg string) error    { return &Error{Estado: http.StatusConflict, Mensaje: msg} }
+func Expirado(msg string) error     { return &Error{Estado: http.StatusGone, Mensaje: msg} }
+func SinSaldo(msg string) error     { return &Error{Estado: http.StatusPaymentRequired, Mensaje: msg} }
+func Prohibido(msg string) error    { return &Error{Estado: http.StatusForbidden, Mensaje: msg} }
+func Demasiadas(msg string) error   { return &Error{Estado: http.StatusTooManyRequests, Mensaje: msg} }
+
+// invalidoPor es un 400 que además se reconoce con errors.Is(err, causa).
+func invalidoPor(causa error, msg string) error {
+	return &Error{Estado: http.StatusBadRequest, Mensaje: msg, Causa: causa}
+}
+
+// ErrCorreoInvalido y ErrNombreInvalido identifican los rechazos de ValidarCorreo y ValidarNombre.
+var (
+	ErrCorreoInvalido = errors.New("correo inválido")
+	ErrNombreInvalido = errors.New("nombre inválido")
+)
 
 // ErrSaldoInsuficiente se usa dentro de la transacción de pago para revertirla.
 var ErrSaldoInsuficiente = errors.New("saldo insuficiente")

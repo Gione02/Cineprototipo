@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,11 +24,51 @@ type Programador interface {
 	Poster(ctx context.Context, slug string) ([]byte, string, error)
 }
 
-// Cartelera gestiona el catálogo editable.
-type Cartelera struct{ repo Programador }
+// Cartelera gestiona la cartelera vigente y el catálogo editable.
+type Cartelera struct {
+	repo     Programador
+	catalogo Catalogo
+	cache    Cache
+	ttl      time.Duration
+}
 
-// NuevaCartelera crea el servicio.
-func NuevaCartelera(r Programador) *Cartelera { return &Cartelera{repo: r} }
+// NuevaCartelera crea el servicio. ttl es la vida de la cartelera en caché (0 = siempre desde la base de datos).
+func NuevaCartelera(r Programador, c Catalogo, cache Cache, ttl time.Duration) *Cartelera {
+	return &Cartelera{repo: r, catalogo: c, cache: cache, ttl: ttl}
+}
+
+// claveCartelera es la entrada de caché de GET /api/funciones.
+const claveCartelera = "funciones"
+
+// Funciones devuelve la cartelera vigente. Es la consulta más pedida (portada, fichas, panel), así que se sirve
+// desde Redis durante ttl segundos; se invalida al programar funciones o crear películas. Las butacas libres de
+// cada función pueden ir hasta ttl segundos atrasadas: el mapa de butacas usa su propia consulta en tiempo real.
+func (s *Cartelera) Funciones(ctx context.Context) ([]domain.Funcion, error) {
+	if s.ttl > 0 {
+		if datos, ok := s.cache.LeerCache(ctx, claveCartelera); ok {
+			var lista []domain.Funcion
+			if json.Unmarshal(datos, &lista) == nil {
+				return lista, nil
+			}
+		}
+	}
+	lista, err := s.catalogo.Funciones(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if lista == nil {
+		lista = []domain.Funcion{}
+	}
+	if s.ttl > 0 {
+		if datos, err := json.Marshal(lista); err == nil {
+			s.cache.GuardarCache(ctx, claveCartelera, datos, s.ttl)
+		}
+	}
+	return lista, nil
+}
+
+// InvalidarCartelera descarta la cartelera en caché para que la próxima consulta lea la base de datos.
+func (s *Cartelera) InvalidarCartelera(ctx context.Context) { s.cache.BorrarCache(ctx, claveCartelera) }
 
 const (
 	maxPosterBytes   = 2 << 20 // 2 MB ya decodificado
@@ -49,35 +90,9 @@ type SolicitudPelicula struct {
 
 // Crear valida la ficha, la imagen y las funciones, y guarda todo junto.
 func (s *Cartelera) Crear(ctx context.Context, sol SolicitudPelicula) (string, []string, error) {
-	p := sol.Pelicula
-	p.Titulo = strings.TrimSpace(p.Titulo)
-	p.TituloOriginal = strings.TrimSpace(p.TituloOriginal)
-	if p.TituloOriginal == "" {
-		p.TituloOriginal = p.Titulo
-	}
-	switch {
-	case len([]rune(p.Titulo)) < 2 || len([]rune(p.Titulo)) > 120:
-		return "", nil, domain.Invalido("El título debe tener entre 2 y 120 caracteres.")
-	case !domain.Categorias[p.Categoria]:
-		return "", nil, domain.Invalido("Categoría inválida.")
-	case !domain.Clasificaciones[p.Clasificacion]:
-		return "", nil, domain.Invalido("Clasificación inválida.")
-	case p.Duracion < 30 || p.Duracion > 300:
-		return "", nil, domain.Invalido("La duración debe estar entre 30 y 300 minutos.")
-	case len([]rune(strings.TrimSpace(p.Sinopsis))) < 20:
-		return "", nil, domain.Invalido("Escribe una sinopsis de al menos 20 caracteres.")
-	case p.Trailer != nil && *p.Trailer != "" && !idYouTube.MatchString(*p.Trailer):
-		return "", nil, domain.Invalido("El tráiler debe ser un enlace o id de YouTube válido.")
-	case p.Categoria == "proximamente" && len(sol.Funciones) > 0:
-		return "", nil, domain.Invalido("Las películas «Próximamente» aún no tienen funciones a la venta.")
-	case len(sol.Funciones) > maxFuncionesAlta:
-		return "", nil, domain.Invalido(fmt.Sprintf("Máximo %d funciones por alta.", maxFuncionesAlta))
-	}
-	if p.Trailer != nil && *p.Trailer == "" {
-		p.Trailer = nil
-	}
-	if p.Categoria != "proximamente" {
-		p.EstrenoEnDias = nil
+	p, err := normalizarFicha(sol.Pelicula, len(sol.Funciones))
+	if err != nil {
+		return "", nil, err
 	}
 	poster, tipo, err := decodificarPoster(sol.Poster)
 	if err != nil {
@@ -90,6 +105,9 @@ func (s *Cartelera) Crear(ctx context.Context, sol SolicitudPelicula) (string, [
 	}
 	p.Slug = slugDe(p.Titulo)
 	slug, codigos, err := s.repo.CrearPelicula(ctx, domain.PeliculaAlta{Pelicula: p, Poster: poster, PosterTipo: tipo, CreadaPor: sol.CreadaPor}, sol.Funciones)
+	if err == nil {
+		s.InvalidarCartelera(ctx)
+	}
 	return slug, codigos, traducirTraslape(err)
 }
 
@@ -101,6 +119,9 @@ func (s *Cartelera) Programar(ctx context.Context, pelicula string, f domain.Nue
 	codigo, err := s.repo.ProgramarFuncion(ctx, pelicula, f)
 	if errors.Is(err, domain.ErrNoExiste) {
 		return "", domain.NoEncontrado("La película no existe en la base de datos.")
+	}
+	if err == nil {
+		s.InvalidarCartelera(ctx)
 	}
 	return codigo, traducirTraslape(err)
 }
@@ -117,6 +138,49 @@ func (s *Cartelera) Poster(ctx context.Context, slug string) ([]byte, string, er
 		return nil, "", domain.NoEncontrado("Póster no disponible.")
 	}
 	return b, t, nil
+}
+
+// normalizarFicha limpia los textos de la ficha y comprueba sus reglas (RF-05, RF-67).
+func normalizarFicha(p domain.Pelicula, nFunciones int) (domain.Pelicula, error) {
+	p.Titulo = strings.TrimSpace(p.Titulo)
+	p.TituloOriginal = strings.TrimSpace(p.TituloOriginal)
+	if p.TituloOriginal == "" {
+		p.TituloOriginal = p.Titulo
+	}
+	if p.Trailer != nil && *p.Trailer == "" {
+		p.Trailer = nil
+	}
+	if p.Categoria != "proximamente" {
+		p.EstrenoEnDias = nil
+	}
+	if msg := reglaIncumplida(p, nFunciones); msg != "" {
+		return p, domain.Invalido(msg)
+	}
+	return p, nil
+}
+
+// reglaIncumplida devuelve el mensaje de la primera regla de la ficha que no se cumple ("" si todas se cumplen).
+func reglaIncumplida(p domain.Pelicula, nFunciones int) string {
+	titulo := len([]rune(p.Titulo))
+	switch {
+	case titulo < 2 || titulo > 120:
+		return "El título debe tener entre 2 y 120 caracteres."
+	case !domain.Categorias[p.Categoria]:
+		return "Categoría inválida."
+	case !domain.Clasificaciones[p.Clasificacion]:
+		return "Clasificación inválida."
+	case p.Duracion < 30 || p.Duracion > 300:
+		return "La duración debe estar entre 30 y 300 minutos."
+	case len([]rune(strings.TrimSpace(p.Sinopsis))) < 20:
+		return "Escribe una sinopsis de al menos 20 caracteres."
+	case p.Trailer != nil && !idYouTube.MatchString(*p.Trailer):
+		return "El tráiler debe ser un enlace o id de YouTube válido."
+	case p.Categoria == "proximamente" && nFunciones > 0:
+		return "Las películas «Próximamente» aún no tienen funciones a la venta."
+	case nFunciones > maxFuncionesAlta:
+		return fmt.Sprintf("Máximo %d funciones por alta.", maxFuncionesAlta)
+	}
+	return ""
 }
 
 func validarFuncion(f *domain.NuevaFuncion) error {

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -12,7 +11,7 @@ import (
 
 // GET /api/funciones
 func (a *API) listarFunciones(w http.ResponseWriter, r *http.Request) {
-	lista, err := a.s.Catalogo.Funciones(r.Context())
+	lista, err := a.s.Cartelera.Funciones(r.Context())
 	if err != nil {
 		fallar(w, err)
 		return
@@ -122,8 +121,8 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 	h.Set("X-Accel-Buffering", "no") // nginx: no acumular eventos
 	w.WriteHeader(http.StatusOK)
 
-	datos, _ := json.Marshal(inicial)
-	fmt.Fprintf(w, "retry: 3000\nevent: estado\ndata: %s\n\n", datos)
+	fmt.Fprint(w, "retry: 3000\n")
+	_ = httpx.EventoSSE(w, "estado", inicial)
 	flusher.Flush()
 
 	mensajes := sub.Channel()
@@ -135,8 +134,7 @@ func (a *API) stream(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-latido.C:
 			if o, err := a.s.Asientos.Ocupacion(ctx, fid); err == nil {
-				datos, _ := json.Marshal(o)
-				fmt.Fprintf(w, "event: estado\ndata: %s\n\n", datos)
+				_ = httpx.EventoSSE(w, "estado", o)
 			} else {
 				fmt.Fprint(w, ": ping\n\n")
 			}

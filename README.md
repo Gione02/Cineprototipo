@@ -223,8 +223,30 @@ npm start          # http://localhost:3000
 ### Configuración
 
 - `NEXT_PUBLIC_API_URL` (en `frontend/.env.local`): URL de la API (obligatoria).
+- **Base de datos (API, obligatoria):** `DATABASE_URL`, o bien `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+  y `DB_SSLMODE`. No hay credenciales por defecto en el código: si faltan, la API no arranca. En local las pone
+  `docker-compose.yml` (puedes cambiarlas con `POSTGRES_USER` / `POSTGRES_PASSWORD` en un archivo `.env`).
+- `DB_MAX_CONNS` / `DB_MIN_CONNS` (API): tamaño del pool de PostgreSQL, 25 y 5 por defecto. Con el plan gratuito de
+  Supabase usa un máximo menor al límite de conexiones de tu plan (p. ej. 10).
+- `CACHE_CARTELERA_SEGUNDOS` (API): segundos que `GET /api/funciones` se sirve desde Redis. 15 por defecto; 0 la desactiva.
 - `CORS_ORIGINS` (en `docker-compose.yml`): orígenes que pueden llamar a la API. Por defecto `http://localhost:3000,http://127.0.0.1:3000`.
 - `RETENCION_SEGUNDOS` (API, opcional): vida del bloqueo de una butaca y de una reserva. Por defecto 300.
+
+### Pruebas
+
+```bash
+# Pruebas unitarias del backend (sin base de datos: usan dobles en memoria)
+docker run --rm -v "${PWD}/backend:/app" -w /app golang:1.26-alpine go test ./...
+
+# Vulnerabilidades conocidas en las dependencias de Go
+docker run --rm -v "${PWD}/backend:/app" -w /app golang:1.26-alpine go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+# Carga: 500 usuarios simultáneos contra la API local (no compra ni deja datos)
+docker run --rm -i -e BASE=http://host.docker.internal:8080 grafana/k6 run - < pruebas/script_carga.js
+```
+
+En PowerShell, la prueba de carga se ejecuta con
+`Get-Content pruebas\script_carga.js -Raw | docker run --rm -i -e BASE=http://host.docker.internal:8080 grafana/k6 run -`.
 
 #### reCAPTCHA v3 (opcional)
 

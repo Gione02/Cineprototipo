@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/cineight/backend/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -21,6 +22,21 @@ type Postgres struct {
 
 // NuevoPostgres crea el repositorio sobre un pool de conexiones.
 func NuevoPostgres(db *pgxpool.Pool) *Postgres { return &Postgres{db: db} }
+
+// AbrirPool crea el pool de conexiones (pgx + puddle) con límites explícitos: como mucho maxConns conexiones
+// abiertas, para no agotar los puertos ni el límite del servidor de PostgreSQL (o del pooler de Supabase), y
+// minConns siempre listas para que la primera consulta tras un rato sin tráfico no espere a conectar.
+func AbrirPool(ctx context.Context, dsn string, maxConns, minConns int32) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MaxConns = maxConns
+	cfg.MinConns = minConns
+	cfg.MaxConnIdleTime = 5 * time.Minute
+	cfg.HealthCheckPeriod = time.Minute
+	return pgxpool.NewWithConfig(ctx, cfg)
+}
 
 // EsViolacionUnica indica si err proviene de una restricción UNIQUE (código 23505).
 func EsViolacionUnica(err error) bool {

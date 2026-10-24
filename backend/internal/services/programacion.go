@@ -11,17 +11,18 @@ import (
 // Programacion mantiene siempre programados hoy y los días siguientes (domain.DiasProgramados), así la cartelera
 // nunca se queda sin funciones aunque la base de datos se haya creado hace días.
 type Programacion struct {
-	repo PlanificadorDias
-	zona *time.Location
+	repo      PlanificadorDias
+	zona      *time.Location
+	alCambiar func(context.Context) // se llama cuando se crean funciones (p. ej. invalidar la caché de la cartelera)
 }
 
 // NuevaProgramacion crea el servicio. Usa la hora de Guatemala para decidir qué es "hoy".
-func NuevaProgramacion(r PlanificadorDias) *Programacion {
+func NuevaProgramacion(r PlanificadorDias, alCambiar func(context.Context)) *Programacion {
 	zona, err := time.LoadLocation(domain.ZonaHoraria)
 	if err != nil {
 		zona = time.FixedZone("GT", -6*60*60)
 	}
-	return &Programacion{repo: r, zona: zona}
+	return &Programacion{repo: r, zona: zona, alCambiar: alCambiar}
 }
 
 // Asegurar programa lo que falte desde hoy hasta domain.DiasProgramados - 1 días después.
@@ -45,6 +46,9 @@ func (s *Programacion) Mantener(ctx context.Context) {
 			espera = 30 * time.Second
 		} else if n > 0 {
 			log.Printf("programación automática: %d funciones nuevas", n)
+			if s.alCambiar != nil {
+				s.alCambiar(ctx)
+			}
 		}
 		select {
 		case <-ctx.Done():

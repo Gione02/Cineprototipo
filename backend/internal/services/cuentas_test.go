@@ -24,11 +24,15 @@ func (c *cuentasMemoria) VincularCliente(_ context.Context, correo, _ string) (i
 	}
 	return 1, domain.BonoBienvenida, nil
 }
-func (c *cuentasMemoria) Cuenta(context.Context, int64) (domain.Cuenta, error) { return domain.Cuenta{}, nil }
+func (c *cuentasMemoria) Cuenta(context.Context, int64) (domain.Cuenta, error) {
+	return domain.Cuenta{}, nil
+}
 func (c *cuentasMemoria) AcreditarTrivia(context.Context, int64, string, int) (bool, int, error) {
 	return false, 0, nil
 }
-func (c *cuentasMemoria) Metricas(context.Context) (domain.Metricas, error) { return domain.Metricas{}, nil }
+func (c *cuentasMemoria) Metricas(context.Context) (domain.Metricas, error) {
+	return domain.Metricas{}, nil
+}
 func (c *cuentasMemoria) HistorialClientes(context.Context) ([]domain.HistorialCliente, error) {
 	return nil, nil
 }

@@ -85,6 +85,13 @@ type Colas interface {
 	Contar(ctx context.Context, grupo, ip string) (int64, error)
 }
 
+// Cache guarda lecturas frecuentes con vencimiento. Si falla, el servicio consulta la base de datos.
+type Cache interface {
+	LeerCache(ctx context.Context, clave string) ([]byte, bool)
+	GuardarCache(ctx context.Context, clave string, datos []byte, ttl time.Duration)
+	BorrarCache(ctx context.Context, clave string)
+}
+
 // Turnos verifica que quien compra un preestreno tenga turno vigente de la cola virtual.
 type Turnos interface {
 	ExigirTurno(ctx context.Context, evento *string, usuarioID int64) error

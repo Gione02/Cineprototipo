@@ -40,43 +40,48 @@ func NormalizarCorreo(s string) string { return strings.ToLower(strings.TrimSpac
 // ValidarNombre exige sólo letras (con tildes y ñ), sin números ni símbolos, y al menos nombre y apellido.
 func ValidarNombre(nombre string) error {
 	n := NormalizarNombre(nombre)
+	malo := func(msg string) error { return invalidoPor(ErrNombreInvalido, msg) }
 	switch {
 	case n == "":
-		return Invalido("Escribe tu nombre.")
+		return malo("Escribe tu nombre.")
 	case strings.IndexFunc(n, unicode.IsDigit) >= 0:
-		return Invalido("El nombre no puede contener números.")
+		return malo("El nombre no puede contener números.")
 	case !patronNombre.MatchString(n):
-		return Invalido("Usa sólo letras y espacios (se permiten tildes, ñ, guion y apóstrofo).")
+		return malo("Usa sólo letras y espacios (se permiten tildes, ñ, guion y apóstrofo).")
 	case utf8.RuneCountInString(n) > NombreMax:
-		return Invalido("El nombre es demasiado largo.")
+		return malo("El nombre es demasiado largo.")
 	}
 	palabras := strings.Split(n, " ")
 	for _, p := range palabras {
 		if utf8.RuneCountInString(strings.NewReplacer("'", "", "’", "", "-", "").Replace(p)) < 2 {
-			return Invalido("Cada nombre o apellido debe tener al menos 2 letras.")
+			return malo("Cada nombre o apellido debe tener al menos 2 letras.")
 		}
 	}
 	if len(palabras) < 2 {
-		return Invalido("Escribe tu nombre y apellido.")
+		return malo("Escribe tu nombre y apellido.")
 	}
 	if letrasRepetidas(n, 3) {
-		return Invalido("El nombre tiene letras repetidas de más.")
+		return malo("El nombre tiene letras repetidas de más.")
 	}
 	return nil
 }
 
 // ValidarCorreo comprueba el formato y rechaza dominios temporales o de ejemplo.
+// El formato es el "dot-atom" de RFC 5322 (el que usan los proveedores reales), sin las formas obsoletas que el
+// RFC también admite —partes entre comillas, comentarios o IP literales— porque no sirven para recibir boletos.
+// Todo rechazo cumple errors.Is(err, ErrCorreoInvalido).
 func ValidarCorreo(correo string) error {
 	c := NormalizarCorreo(correo)
+	malo := func(msg string) error { return invalidoPor(ErrCorreoInvalido, msg) }
 	switch {
 	case c == "":
-		return Invalido("Escribe tu correo electrónico.")
+		return malo("Escribe tu correo electrónico.")
 	case len(c) > CorreoMax:
-		return Invalido("El correo es demasiado largo.")
+		return malo("El correo es demasiado largo.")
 	case strings.Count(c, "@") != 1 || strings.Contains(c, "..") || !patronCorreo.MatchString(c):
-		return Invalido("Correo no válido. Ejemplo: nombre@dominio.com")
+		return malo("Correo no válido. Ejemplo: nombre@dominio.com")
 	case dominiosNoValidos[c[strings.Index(c, "@")+1:]]:
-		return Invalido("Usa un correo real: no se aceptan correos temporales ni de ejemplo.")
+		return malo("Usa un correo real: no se aceptan correos temporales ni de ejemplo.")
 	}
 	return nil
 }

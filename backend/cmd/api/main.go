@@ -33,18 +33,20 @@ import (
 	"github.com/cineight/backend/internal/services"
 	"github.com/cineight/backend/pkg/httpx"
 	"github.com/cineight/backend/pkg/recaptcha"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	cfg := config.Cargar()
+	cfg, err := config.Cargar()
+	if err != nil {
+		log.Fatalf("configuración incompleta: %v", err)
+	}
 	ctx, detener := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer detener()
 
-	db, err := pgxpool.New(ctx, cfg.DatabaseURL)
+	db, err := repository.AbrirPool(ctx, cfg.DatabaseURL, cfg.DBMaxConns, cfg.DBMinConns)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("PostgreSQL: %v", err)
 	}
 	defer db.Close()
 	// REDIS_URL (rediss:// con TLS en Upstash, Render, Railway…) o REDIS_ADDR en local.
@@ -71,21 +73,21 @@ func main() {
 	seguridad := services.NuevaSeguridad(recaptcha.Nuevo(cfg.RecaptchaKey, cfg.RecaptchaMin), rd, rd, pg)
 	cola := services.NuevaCola(rd, seguridad, cfg.ColaCapacidad, cfg.ColaTurno)
 	asientos := services.NuevoAsientos(pg, rd, cola, cfg.Retencion)
+	cartelera := services.NuevaCartelera(pg, pg, rd, cfg.CacheCartelera)
 	srv := handlers.Servicios{
-		Catalogo:  pg,
 		Asientos:  asientos,
 		Reservas:  services.NuevoReservas(asientos, pg, rd, pg, cfg.Retencion),
 		Cuentas:   services.NuevoCuentas(pg, pg, pg, seguridad),
 		Cola:      cola,
 		Panel:     services.NuevoPanel(pg, rd, rd),
 		Seguridad: seguridad,
-		Cartelera: services.NuevaCartelera(pg),
+		Cartelera: cartelera,
 	}
 
 	// Los vencimientos de Redis (TTL) se difunden como "liberado" a los mapas abiertos.
 	go asientos.EscucharExpiraciones(ctx)
 	// Hoy y los próximos días siempre tienen funciones, aunque la base de datos se haya creado hace días.
-	go services.NuevaProgramacion(pg).Mantener(ctx)
+	go services.NuevaProgramacion(pg, cartelera.InvalidarCartelera).Mantener(ctx)
 
 	origenes := httpx.ListaOrigenes(cfg.OrigenesCORS)
 	servidor := &http.Server{
@@ -104,8 +106,8 @@ func main() {
 		_ = servidor.Shutdown(apagar)
 	}()
 
-	log.Printf("Cineight API escuchando en %s · CORS: %v · reCAPTCHA: %v · cola virtual: %d turnos de %s",
-		servidor.Addr, cfg.OrigenesCORS, cfg.RecaptchaKey != "", cfg.ColaCapacidad, cfg.ColaTurno)
+	log.Printf("Cineight API escuchando en %s · CORS: %v · reCAPTCHA: %v · cola virtual: %d turnos de %s · pool PostgreSQL: %d–%d · caché cartelera: %s",
+		servidor.Addr, cfg.OrigenesCORS, cfg.RecaptchaKey != "", cfg.ColaCapacidad, cfg.ColaTurno, cfg.DBMinConns, cfg.DBMaxConns, cfg.CacheCartelera)
 	if err := servidor.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}

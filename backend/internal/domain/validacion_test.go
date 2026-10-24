@@ -1,6 +1,10 @@
 package domain
 
-import "testing"
+import (
+	"errors"
+	"net/http"
+	"testing"
+)
 
 func TestValidarNombre(t *testing.T) {
 	validos := []string{"Ana López", "José María Pérez-Gómez", "Seán O'Connor", "  luis   pérez ", "Nuñez Ibáñez"}
@@ -11,9 +15,26 @@ func TestValidarNombre(t *testing.T) {
 	}
 	invalidos := []string{"", "Ana", "Ana L0pez", "Ana López 2", "Ana_López", "Ana @López", "Ana  -López", "Aaaana López", "A López", "Ana.López", "<script>"}
 	for _, n := range invalidos {
-		if ValidarNombre(n) == nil {
+		err := ValidarNombre(n)
+		if err == nil {
 			t.Errorf("%q debería ser inválido", n)
+			continue
 		}
+		if !errors.Is(err, ErrNombreInvalido) {
+			t.Errorf("%q: el error debería ser ErrNombreInvalido, fue %v", n, err)
+		}
+	}
+}
+
+// Los rechazos de correo se reconocen con errors.Is y siguen respondiendo 400 con un mensaje para el usuario.
+func TestValidarCorreoDevuelveErrorEstructurado(t *testing.T) {
+	err := ValidarCorreo("ana@@correo.com")
+	if !errors.Is(err, ErrCorreoInvalido) {
+		t.Fatalf("se esperaba ErrCorreoInvalido, fue %v", err)
+	}
+	var e *Error
+	if !errors.As(err, &e) || e.Estado != http.StatusBadRequest || e.Mensaje == "" {
+		t.Fatalf("se esperaba un error de dominio 400 con mensaje, fue %#v", err)
 	}
 }
 
@@ -27,8 +48,8 @@ func TestValidarCorreo(t *testing.T) {
 	invalidos := []string{"", "ana", "ana@", "@correo.com", "ana@correo", "ana@@correo.com", "ana..lopez@correo.com", ".ana@correo.com",
 		"ana@correo.c", "ana lopez@correo.com", "ana@correo.123", "ana@-correo.com", "ana@mailinator.com", "ana@example.com"}
 	for _, c := range invalidos {
-		if ValidarCorreo(c) == nil {
-			t.Errorf("%q debería ser inválido", c)
+		if err := ValidarCorreo(c); !errors.Is(err, ErrCorreoInvalido) {
+			t.Errorf("%q debería ser inválido (ErrCorreoInvalido), fue %v", c, err)
 		}
 	}
 }
